@@ -1,0 +1,6 @@
+{
+  "name": "KYPAS SOLAR CRM PRO",
+  "description": "Enterprise Solar Power CRM for Sales, Quotations, Bank Loans, Installation, AMC and After-Sales Service by Kypas Solar Power Private Limited.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
