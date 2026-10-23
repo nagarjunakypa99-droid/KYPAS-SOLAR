@@ -50,7 +50,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
 }) => {
   const { hasPermission } = useAuth();
-  const { leads, loans, installations, services, amcContracts } = useCRM();
+  const { leads, loans, installations, services, amcContracts, settings } = useCRM();
 
   // Dynamic badges
   const pendingLeadsCount = leads.filter(l => ['New', 'Follow-up', 'Interested'].includes(l.status)).length;
@@ -88,9 +88,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       key: 'loans' as NavItemKey,
-      label: 'Bank Loan Tracking',
+      label: 'Bank',
       icon: Landmark,
-      moduleName: 'Bank Loan Tracking',
+      moduleName: 'Bank',
       badge: pendingLoansCount > 0 ? pendingLoansCount : undefined,
       badgeColor: 'bg-amber-600',
     },
@@ -157,18 +157,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
       }`}
     >
       {/* Brand Header */}
-      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800 bg-slate-950/60">
-        <div className="flex items-center gap-3 overflow-hidden">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 flex items-center justify-center text-slate-950 font-black shadow-md shadow-amber-500/20 shrink-0">
-            <Sun className="w-6 h-6 animate-pulse" />
-          </div>
+      <div className="h-16 flex items-center justify-between px-3 border-b border-slate-800 bg-slate-950/80">
+        <div className="flex items-center gap-2.5 overflow-hidden min-w-0">
+          {/* Logo container: If custom image logo is set, render the logo image */}
+          {settings.logoUrl && settings.logoType !== 'icon' ? (
+            <div className="w-10 h-10 rounded-xl overflow-hidden bg-amber-500/10 flex items-center justify-center shrink-0 border border-amber-500/20">
+              <img
+                src={settings.logoUrl}
+                alt={settings.brandName || settings.companyName}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            </div>
+          ) : (
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 flex items-center justify-center text-slate-950 font-black shadow-md shadow-amber-500/20 shrink-0">
+              <Sun className="w-6 h-6 animate-pulse" />
+            </div>
+          )}
+
           {!isCollapsed && (
-            <div className="flex flex-col truncate">
-              <span className="font-extrabold text-sm tracking-tight text-white flex items-center gap-1.5">
-                KYPAS SOLAR <span className="text-[10px] bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded font-black">PRO</span>
+            <div className="flex flex-col truncate min-w-0">
+              <span className="font-extrabold text-sm tracking-tight text-white flex items-center gap-1.5 truncate">
+                <span className="truncate">{settings.brandName || 'KYPAS SOLAR'}</span>
+                {(settings.brandBadge ?? 'PRO') && (
+                  <span className="text-[10px] bg-amber-400/20 text-amber-300 px-1.5 py-0.5 rounded font-black shrink-0">
+                    {settings.brandBadge || 'PRO'}
+                  </span>
+                )}
               </span>
               <span className="text-[10px] font-medium text-slate-400 tracking-wider uppercase truncate">
-                Enterprise CRM
+                {settings.tagline || 'ENTERPRISE CRM'}
               </span>
             </div>
           )}

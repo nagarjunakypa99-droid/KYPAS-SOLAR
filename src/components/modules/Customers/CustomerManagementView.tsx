@@ -370,6 +370,9 @@ export const CustomerManagementView: React.FC = () => {
                       </h4>
                       <div><span className="text-slate-400">System Capacity:</span> <span className="font-bold text-blue-600">{selectedCustomer.systemCapacityKW} kW</span></div>
                       <div><span className="text-slate-400">Solar Requirement:</span> <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedCustomer.solarRequirement}</span></div>
+                      <div><span className="text-slate-400">Payment Channel:</span> <span className="font-bold text-amber-600 dark:text-amber-400">{selectedCustomer.paymentMode || 'Loan'}</span></div>
+                      <div><span className="text-slate-400">Project Cost:</span> <span className="font-bold text-slate-800 dark:text-slate-200">{formatINR(selectedCustomer.totalProjectCost || selectedCustomer.systemCapacityKW * 65000)}</span></div>
+                      <div><span className="text-slate-400">Total Paid:</span> <span className="font-bold text-emerald-600">{formatINR(selectedCustomer.totalPaid || 0)}</span></div>
                       <div><span className="text-slate-400">Original Lead ID:</span> <span className="font-mono text-slate-700 dark:text-slate-300">{selectedCustomer.leadId || 'Direct Entry'}</span></div>
                       <div><span className="text-slate-400">Assigned Executive:</span> <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedCustomer.assignedExecutiveName}</span></div>
                       <div><span className="text-slate-400">Customer Registered:</span> <span className="text-slate-700 dark:text-slate-300">{formatDate(selectedCustomer.createdAt)}</span></div>

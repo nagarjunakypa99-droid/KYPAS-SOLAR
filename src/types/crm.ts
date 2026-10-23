@@ -69,11 +69,33 @@ export interface Lead {
   assignedExecutiveName: string;
   nextFollowUpDate: string;
   status: LeadStatus;
+  paymentPreference?: 'Loan' | 'Bank' | 'Cash';
   lostReason?: string;
   notes: string;
   createdAt: string;
   updatedAt: string;
   convertedCustomerId?: string;
+}
+
+export type PaymentCategory = 'Loan' | 'Bank' | 'Cash';
+
+export interface BankPaymentTransaction {
+  id: string;
+  customerId: string;
+  customerName: string;
+  customerMobile: string;
+  paymentType: 'Bank' | 'Cash';
+  amount: number;
+  paymentStage: 'Advance' | 'Material Dispatch' | 'Commissioning' | 'Full Payment';
+  date: string;
+  bankName?: string;
+  transferMode?: 'NEFT' | 'RTGS' | 'IMPS' | 'UPI' | 'Cheque';
+  transactionUtrOrCheque?: string;
+  targetAccount?: string;
+  collectedBy?: string;
+  receiptNumber: string;
+  status: 'Verified' | 'Pending Verification' | 'Rejected';
+  notes?: string;
 }
 
 export interface CustomerInteraction {
@@ -102,6 +124,9 @@ export interface Customer {
   solarRequirement: SolarRequirement;
   systemCapacityKW: number;
   status: 'Active' | 'Installation in Progress' | 'Commissioned' | 'Under AMC';
+  paymentMode?: PaymentCategory;
+  totalProjectCost?: number;
+  totalPaid?: number;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -374,6 +399,10 @@ export interface AuditLog {
 
 export interface CompanySettings {
   companyName: string;
+  brandName?: string;
+  brandBadge?: string;
+  logoUrl?: string;
+  logoType?: 'image' | 'icon';
   tagline: string;
   cin: string;
   gstin: string;

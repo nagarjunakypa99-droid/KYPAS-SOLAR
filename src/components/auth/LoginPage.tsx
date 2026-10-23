@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Sun, Shield, Lock, Mail, ArrowRight, CheckCircle2, Zap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole } from '../../types/crm';
+import { StorageService } from '../../services/storageService';
 
 export const LoginPage: React.FC = () => {
   const { login, users } = useAuth();
+  const settings = StorageService.getSettings();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -52,14 +54,30 @@ export const LoginPage: React.FC = () => {
       {/* Header bar */}
       <div className="p-6 flex items-center justify-between max-w-7xl mx-auto w-full z-10">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20">
-            <Sun className="w-6 h-6 animate-pulse" />
-          </div>
+          {settings.logoUrl && settings.logoType !== 'icon' ? (
+            <div className="w-12 h-12 rounded-xl overflow-hidden bg-amber-500/10 flex items-center justify-center border border-amber-500/30 shrink-0">
+              <img
+                src={settings.logoUrl}
+                alt={settings.brandName || settings.companyName}
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+            </div>
+          ) : (
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center text-slate-950 font-black shadow-lg shadow-amber-500/20">
+              <Sun className="w-6 h-6 animate-pulse" />
+            </div>
+          )}
           <div>
             <h1 className="font-extrabold text-lg tracking-tight text-white flex items-center gap-2">
-              KYPAS SOLAR <span className="text-xs bg-amber-400 text-slate-950 px-2 py-0.5 rounded font-black">CRM PRO</span>
+              {settings.brandName || 'KYPAS SOLAR'}{' '}
+              <span className="text-xs bg-amber-400 text-slate-950 px-2 py-0.5 rounded font-black">
+                {settings.brandBadge || 'CRM PRO'}
+              </span>
             </h1>
-            <p className="text-[11px] text-slate-400">Kypas Solar Power Private Limited</p>
+            <p className="text-[11px] text-slate-400">{settings.companyName}</p>
           </div>
         </div>
 

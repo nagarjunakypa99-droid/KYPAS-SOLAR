@@ -11,6 +11,8 @@ import {
   CompanySettings,
   AuditLog,
   CalendarEvent,
+  BankPaymentTransaction,
+  PaymentCategory,
 } from '../types/crm';
 import { StorageService } from '../services/storageService';
 import { useAuth } from './AuthContext';
@@ -42,10 +44,15 @@ interface CRMContextType {
   services: ServiceTicket[];
   amcContracts: AMCContract[];
   auditLogs: AuditLog[];
+  transactions: BankPaymentTransaction[];
   settings: CompanySettings;
   calendarEvents: CalendarEvent[];
   theme: 'light' | 'dark';
   toggleTheme: () => void;
+
+  // Payment & Transaction Actions
+  createTransaction: (txn: Omit<BankPaymentTransaction, 'id'>) => { success: boolean; id?: string };
+  setCustomerPaymentMode: (customerId: string, mode: PaymentCategory) => void;
 
   // Leads Actions
   createLead: (lead: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>) => { success: boolean; leadId?: string; error?: string };
@@ -113,6 +120,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [services, setServices] = useState<ServiceTicket[]>([]);
   const [amcContracts, setAMCContracts] = useState<AMCContract[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [transactions, setTransactions] = useState<BankPaymentTransaction[]>([]);
   const [settings, setSettings] = useState<CompanySettings>(StorageService.getSettings());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogOptions | null>(null);
@@ -159,6 +167,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setServices(StorageService.getServices());
     setAMCContracts(StorageService.getAMC());
     setAuditLogs(StorageService.getAuditLogs());
+    setTransactions(StorageService.getTransactions());
     setSettings(StorageService.getSettings());
   };
 
@@ -1090,6 +1099,60 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const createTransaction = (txnData: Omit<BankPaymentTransaction, 'id'>) => {
+    const nextNum = transactions.length + 1;
+    const prefix = txnData.paymentType === 'Cash' ? 'TXN-CSH' : 'TXN-BNK';
+    const id = `${prefix}-${String(nextNum + 10).padStart(3, '0')}`;
+
+    const newTxn: BankPaymentTransaction = {
+      ...txnData,
+      id,
+    };
+
+    const updated = [newTxn, ...transactions];
+    setTransactions(updated);
+    StorageService.saveTransactions(updated);
+
+    // Also update customer's totalPaid
+    const cust = customers.find(c => c.id === txnData.customerId);
+    if (cust) {
+      const currentPaid = cust.totalPaid || 0;
+      updateCustomer(cust.id, {
+        totalPaid: currentPaid + txnData.amount,
+        paymentMode: txnData.paymentType,
+      });
+    }
+
+    StorageService.addAuditLog({
+      userId: currentUser?.id || 'SYS',
+      userName: currentUser?.name || 'System User',
+      userRole: currentUser?.role || 'Administrator',
+      action: 'CREATE',
+      module: 'Customers',
+      recordId: id,
+      recordIdentifier: newTxn.receiptNumber,
+      details: `Recorded ${txnData.paymentType} payment of ₹${txnData.amount.toLocaleString('en-IN')} for ${newTxn.customerName} (${newTxn.paymentStage}).`,
+    });
+    setAuditLogs(StorageService.getAuditLogs());
+
+    addToast({
+      type: 'success',
+      title: 'Payment Recorded',
+      message: `${txnData.paymentType} payment of ₹${txnData.amount.toLocaleString('en-IN')} recorded for ${newTxn.customerName}.`,
+    });
+
+    return { success: true, id };
+  };
+
+  const setCustomerPaymentMode = (customerId: string, mode: PaymentCategory) => {
+    updateCustomer(customerId, { paymentMode: mode });
+    addToast({
+      type: 'info',
+      title: 'Payment Mode Updated',
+      message: `Customer payment method set to ${mode}.`,
+    });
+  };
+
   const calendarEvents = StorageService.getCalendarEvents();
 
   return (
@@ -1104,10 +1167,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         services,
         amcContracts,
         auditLogs,
+        transactions,
         settings,
         calendarEvents,
         theme,
         toggleTheme,
+
+        createTransaction,
+        setCustomerPaymentMode,
 
         createLead,
         updateLead,

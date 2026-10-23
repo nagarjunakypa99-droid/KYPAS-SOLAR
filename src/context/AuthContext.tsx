@@ -117,14 +117,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     switch (role) {
       case 'Sales Manager':
-        return ['Dashboard', 'Leads', 'Customers', 'Quotations', 'Maintenance Calendar', 'Reports & Analytics', 'Activity History'].includes(module);
+        return ['Dashboard', 'Leads', 'Customers', 'Quotations', 'Bank', 'Bank Loan Tracking', 'Maintenance Calendar', 'Reports & Analytics', 'Activity History'].includes(module);
 
       case 'Sales Executive':
         if (module === 'Reports & Analytics' && action !== 'view') return false;
-        return ['Dashboard', 'Leads', 'Customers', 'Quotations', 'Maintenance Calendar'].includes(module);
+        return ['Dashboard', 'Leads', 'Customers', 'Quotations', 'Bank', 'Bank Loan Tracking', 'Maintenance Calendar'].includes(module);
 
       case 'Loan Processing Executive':
-        return ['Dashboard', 'Bank Loan Tracking', 'Customers', 'Maintenance Calendar', 'Reports & Analytics'].includes(module);
+        return ['Dashboard', 'Bank', 'Bank Loan Tracking', 'Customers', 'Maintenance Calendar', 'Reports & Analytics'].includes(module);
 
       case 'Service Manager':
         return ['Dashboard', 'Customers', 'Installation Management', 'Service Management', 'AMC Management', 'Maintenance Calendar', 'Reports & Analytics', 'Activity History'].includes(module);

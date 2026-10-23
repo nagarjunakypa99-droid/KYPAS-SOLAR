@@ -11,6 +11,7 @@ import {
   AuditLog,
   CustomerInteraction,
   CalendarEvent,
+  BankPaymentTransaction,
 } from '../types/crm';
 import {
   initialUsers,
@@ -24,6 +25,7 @@ import {
   initialServiceTickets,
   initialAMCContracts,
   initialAuditLogs,
+  initialTransactions,
 } from './mockData';
 
 const STORAGE_KEYS = {
@@ -38,6 +40,7 @@ const STORAGE_KEYS = {
   SERVICES: 'kypas_crm_services_v1',
   AMC: 'kypas_crm_amc_v1',
   AUDIT_LOGS: 'kypas_crm_audit_logs_v1',
+  TRANSACTIONS: 'kypas_crm_transactions_v1',
   CURRENT_USER: 'kypas_crm_auth_user_v1',
   THEME: 'kypas_crm_theme_v1',
 };
@@ -97,6 +100,22 @@ export class StorageService {
     if (!localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS)) {
       setItem(STORAGE_KEYS.AUDIT_LOGS, initialAuditLogs);
     }
+    if (!localStorage.getItem(STORAGE_KEYS.TRANSACTIONS)) {
+      setItem(STORAGE_KEYS.TRANSACTIONS, initialTransactions);
+    }
+  }
+
+  // Transactions (Bank and Cash Payments)
+  static getTransactions(): BankPaymentTransaction[] {
+    return getItem(STORAGE_KEYS.TRANSACTIONS, initialTransactions);
+  }
+  static saveTransactions(transactions: BankPaymentTransaction[]): void {
+    setItem(STORAGE_KEYS.TRANSACTIONS, transactions);
+  }
+  static addTransaction(txn: BankPaymentTransaction): void {
+    const list = this.getTransactions();
+    list.unshift(txn);
+    this.saveTransactions(list);
   }
 
   // Users
@@ -109,7 +128,11 @@ export class StorageService {
 
   // Settings
   static getSettings(): CompanySettings {
-    return getItem(STORAGE_KEYS.SETTINGS, initialCompanySettings);
+    const saved = getItem(STORAGE_KEYS.SETTINGS, initialCompanySettings);
+    return {
+      ...initialCompanySettings,
+      ...saved,
+    };
   }
   static saveSettings(settings: CompanySettings): void {
     setItem(STORAGE_KEYS.SETTINGS, settings);
@@ -346,6 +369,7 @@ export class StorageService {
       services: this.getServices(),
       amc: this.getAMC(),
       auditLogs: this.getAuditLogs(),
+      transactions: this.getTransactions(),
     };
     return JSON.stringify(fullBackup, null, 2);
   }
@@ -367,6 +391,7 @@ export class StorageService {
       if (data.services) setItem(STORAGE_KEYS.SERVICES, data.services);
       if (data.amc) setItem(STORAGE_KEYS.AMC, data.amc);
       if (data.auditLogs) setItem(STORAGE_KEYS.AUDIT_LOGS, data.auditLogs);
+      if (data.transactions) setItem(STORAGE_KEYS.TRANSACTIONS, data.transactions);
       return { success: true, message: 'Database successfully imported!' };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Parse error';
@@ -386,6 +411,7 @@ export class StorageService {
     setItem(STORAGE_KEYS.SERVICES, initialServiceTickets);
     setItem(STORAGE_KEYS.AMC, initialAMCContracts);
     setItem(STORAGE_KEYS.AUDIT_LOGS, initialAuditLogs);
+    setItem(STORAGE_KEYS.TRANSACTIONS, initialTransactions);
   }
 
   static resetToCleanSlate(): void {
@@ -400,5 +426,6 @@ export class StorageService {
     setItem(STORAGE_KEYS.SERVICES, []);
     setItem(STORAGE_KEYS.AMC, []);
     setItem(STORAGE_KEYS.AUDIT_LOGS, []);
+    setItem(STORAGE_KEYS.TRANSACTIONS, []);
   }
 }

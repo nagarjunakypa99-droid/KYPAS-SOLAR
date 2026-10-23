@@ -845,9 +845,19 @@ export const QuotationManagementView: React.FC = () => {
               {/* Header with Kypas Solar Letterhead */}
               <div className="flex items-start justify-between pb-6 border-b-2 border-slate-900">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black shadow-md">
-                    <Sun className="w-7 h-7" />
-                  </div>
+                  {settings.logoUrl && settings.logoType !== 'icon' ? (
+                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-white border border-slate-200 flex items-center justify-center shadow-sm">
+                      <img
+                        src={settings.logoUrl}
+                        alt={settings.companyName}
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center text-slate-950 font-black shadow-md">
+                      <Sun className="w-7 h-7" />
+                    </div>
+                  )}
                   <div>
                     <h2 className="text-lg font-black tracking-tight text-slate-950">
                       {settings.companyName}

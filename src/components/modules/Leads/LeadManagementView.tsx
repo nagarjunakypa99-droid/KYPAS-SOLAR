@@ -19,7 +19,10 @@ import {
   FileSpreadsheet,
   FileDown,
   Sparkles,
+  CalendarDays,
+  LayoutList,
 } from 'lucide-react';
+import { LeadCalendar } from './LeadCalendar';
 import { useCRM } from '../../../context/CRMContext';
 import { useAuth } from '../../../context/AuthContext';
 import { Lead, LeadSource, LeadStatus, SolarRequirement, CustomerPreference } from '../../../types/crm';
@@ -37,6 +40,9 @@ export const LeadManagementView: React.FC = () => {
     convertLeadToCustomer,
     showConfirmDialog,
   } = useCRM();
+
+  // View Switcher: Directory vs Lead Calendar
+  const [activeView, setActiveView] = useState<'directory' | 'calendar'>('directory');
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -122,6 +128,15 @@ export const LeadManagementView: React.FC = () => {
     });
     setDuplicateWarning(null);
     setShowAddModal(true);
+  };
+
+  const handleConvertToCustomer = (lead: Lead) => {
+    showConfirmDialog({
+      title: 'Convert Lead to Customer Profile',
+      message: `Are you sure you want to qualify and convert ${lead.customerName} into an official Customer Account? This will create a permanent customer profile for quotation and installation tracking.`,
+      confirmText: 'Convert to Customer',
+      onConfirm: () => convertLeadToCustomer(lead.id),
+    });
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -259,9 +274,57 @@ export const LeadManagementView: React.FC = () => {
         </div>
       </div>
 
-      {/* Filter and Search Toolbar */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      {/* Sub-Tabs: Lead Directory (Table) vs Lead Calendar (Follow-ups & Agenda) */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <button
+          onClick={() => setActiveView('directory')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            activeView === 'directory'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <LayoutList className="w-4 h-4" />
+          <span>Lead Directory (Table List)</span>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+            activeView === 'directory' ? 'bg-blue-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+          }`}>
+            {leads.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveView('calendar')}
+          className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer ${
+            activeView === 'calendar'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <CalendarDays className="w-4 h-4" />
+          <span>Lead Calendar (Follow-up Schedule)</span>
+          <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-500 text-white">
+            Schedule
+          </span>
+        </button>
+      </div>
+
+      {/* View 1: Lead Calendar */}
+      {activeView === 'calendar' && (
+        <LeadCalendar
+          leads={leads}
+          onSelectLead={setViewingLead}
+          onEditLead={handleOpenEditModal}
+          onConvertToCustomer={handleConvertToCustomer}
+        />
+      )}
+
+      {/* View 2: Lead Directory Table & Filters */}
+      {activeView === 'directory' && (
+        <>
+          {/* Filter and Search Toolbar */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Search Box */}
           <div className="relative lg:col-span-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -495,6 +558,8 @@ export const LeadManagementView: React.FC = () => {
           </table>
         </div>
       </div>
+      </>
+      )}
 
       {/* Add / Edit Lead Modal */}
       {showAddModal && (
