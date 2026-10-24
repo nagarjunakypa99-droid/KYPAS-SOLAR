@@ -14,12 +14,14 @@ import {
   Layers,
   Sparkles,
   ClipboardCheck,
+  Upload,
 } from 'lucide-react';
 import { useCRM } from '../../../context/CRMContext';
 import { useAuth } from '../../../context/AuthContext';
 import { Installation, InstallationStatus } from '../../../types/crm';
 import { Badge } from '../../common/Badge';
 import { formatDate, exportToExcel } from '../../../utils/formatters';
+import { DataImportModal, ExpectedColumn } from '../../common/DataImportModal';
 
 export const InstallationManagementView: React.FC = () => {
   const { currentUser, hasPermission } = useAuth();
@@ -29,12 +31,100 @@ export const InstallationManagementView: React.FC = () => {
     updateInstallation,
     toggleInstallationChecklist,
     createInstallation,
+    addToast,
   } = useCRM();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedInst, setSelectedInst] = useState<Installation | null>(null);
+
+  const INSTALLATION_IMPORT_COLUMNS: ExpectedColumn[] = [
+    { key: 'customerName', label: 'Customer Name', required: true },
+    { key: 'customerMobile', label: 'Customer Mobile', required: true },
+    { key: 'projectAddress', label: 'Project Address' },
+    { key: 'solarCapacityKW', label: 'Capacity kW', required: true },
+    { key: 'assignedTechnicianName', label: 'Assigned Technician' },
+    { key: 'plannedInstallationDate', label: 'Planned Date' },
+    { key: 'status', label: 'Status' },
+  ];
+
+  const INSTALLATION_SAMPLE_DATA = [
+    {
+      'Customer Name': 'Nagarjuna Kypa',
+      'Customer Mobile': '9848012345',
+      'Project Address': 'Plot 12, Gachibowli, Hyderabad',
+      'Capacity kW': 5,
+      'Assigned Technician': 'Anji Babu',
+      'Planned Date': new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      'Status': 'Scheduled',
+    },
+    {
+      'Customer Name': 'Satyanarayana Raju',
+      'Customer Mobile': '9848098765',
+      'Project Address': 'Madhapur, Hyderabad',
+      'Capacity kW': 10,
+      'Assigned Technician': 'K. Suresh',
+      'Planned Date': new Date().toISOString().slice(0, 10),
+      'Status': 'Structure Mounting',
+    },
+  ];
+
+  const handleImportInstallations = async (rows: Record<string, any>[]) => {
+    let successCount = 0;
+    rows.forEach((r, idx) => {
+      const custName = r['Customer Name'] || r['customerName'] || `Client ${idx + 1}`;
+      const mob = String(r['Customer Mobile'] || r['customerMobile'] || '9848011223').replace(/\D/g, '').slice(-10);
+      const cap = Number(r['Capacity kW'] || r['solarCapacityKW'] || 5);
+      const addr = r['Project Address'] || r['projectAddress'] || 'Hyderabad, Telangana';
+      const tech = r['Assigned Technician'] || r['assignedTechnicianName'] || 'Anji Babu';
+      const status = (r['Status'] || r['status'] || 'Scheduled') as InstallationStatus;
+      const plannedDate = r['Planned Date'] || r['plannedInstallationDate'] || new Date().toISOString().slice(0, 10);
+
+      const cust = customers.find(c => c.mobile.includes(mob)) || customers[0];
+
+      createInstallation({
+        customerId: cust ? cust.id : `CUST-IMP-${idx}`,
+        customerName: custName,
+        customerMobile: mob,
+        projectAddress: addr,
+        solarCapacityKW: cap,
+        panelDetails: 'Waaree 540Wp Mono PERC Bifacial Modules',
+        panelSerialNumbers: 'Pending Dispatch Verification',
+        inverterDetails: 'Growatt Grid-Tie Wi-Fi Inverter',
+        inverterSerialNumber: 'Pending Inspection',
+        structureDetails: 'HDGI Elevated Rooftop Mounting Structure',
+        installationTeam: 'Hyderabad Alpha Operations Team',
+        assignedTechnicianId: 'USR-006',
+        assignedTechnicianName: tech,
+        plannedInstallationDate: plannedDate,
+        status: status,
+        checklist: {
+          siteSurveyDone: false,
+          civilStructureComplete: false,
+          panelsMounted: false,
+          electricalWiringEarthingDone: false,
+          inverterTestingComplete: false,
+          netMeterInstalled: false,
+          handoverDocSigned: false,
+        },
+        warrantyPanelYears: 25,
+        warrantyInverterYears: 5,
+        warrantyWorkmanshipYears: 5,
+        completionNotes: 'Imported from field schedule spreadsheet.',
+      });
+      successCount++;
+    });
+
+    setShowImportModal(false);
+    addToast({
+      type: 'success',
+      title: 'Installations Imported',
+      message: `Successfully scheduled ${successCount} installation projects.`,
+    });
+    return { success: successCount, skipped: 0 };
+  };
 
   const stages: InstallationStatus[] = [
     'Scheduled',
@@ -162,6 +252,15 @@ export const InstallationManagementView: React.FC = () => {
               <span>Export Schedule</span>
             </button>
           )}
+
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Import Installation Projects from Excel (.xlsx) or CSV"
+          >
+            <Upload className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>Import Projects</span>
+          </button>
 
           {hasPermission('Installation Management', 'create') && (
             <button
@@ -464,6 +563,20 @@ export const InstallationManagementView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* BULK IMPORT INSTALLATION PROJECTS MODAL                                   */}
+      {/* ========================================================================= */}
+      <DataImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        title="Import Installation Schedules"
+        entityName="Installations"
+        sampleFileName="KYPAS_Solar_Installations_Import_Template"
+        sampleData={INSTALLATION_SAMPLE_DATA}
+        expectedColumns={INSTALLATION_IMPORT_COLUMNS}
+        onImport={handleImportInstallations}
+      />
     </div>
   );
 };

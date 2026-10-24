@@ -143,7 +143,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
       if (executiveFilter !== 'all' && l.assignedExecutiveName !== executiveFilter) return false;
 
       // Quick filter
-      if (quickFilter === 'overdue' && (!l.nextFollowUpDate || !isOverdue(l.nextFollowUpDate) || ['Converted', 'Lost'].includes(l.status))) {
+      if (quickFilter === 'overdue' && (!l.nextFollowUpDate || !isOverdue(l.nextFollowUpDate) || ['Converted', 'Lost', 'Disqualified'].includes(l.status))) {
         return false;
       }
       if (quickFilter === 'today') {
@@ -155,7 +155,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
         const d = new Date(l.nextFollowUpDate).getTime();
         const now = Date.now();
         const sevenDays = now + 7 * 24 * 60 * 60 * 1000;
-        if (d < now || d > sevenDays || ['Converted', 'Lost'].includes(l.status)) return false;
+        if (d < now || d > sevenDays || ['Converted', 'Lost', 'Disqualified'].includes(l.status)) return false;
       }
 
       // Search keyword
@@ -194,7 +194,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
   }, [leads, todayDateKey]);
 
   const overdueCount = useMemo(() => {
-    return leads.filter(l => l.nextFollowUpDate && isOverdue(l.nextFollowUpDate) && !['Converted', 'Lost'].includes(l.status)).length;
+    return leads.filter(l => l.nextFollowUpDate && isOverdue(l.nextFollowUpDate) && !['Converted', 'Lost', 'Disqualified'].includes(l.status)).length;
   }, [leads]);
 
   const upcomingCount = useMemo(() => {
@@ -203,7 +203,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
     return leads.filter(l => {
       if (!l.nextFollowUpDate) return false;
       const fDate = new Date(l.nextFollowUpDate).getTime();
-      return fDate >= now && fDate <= sevenDays && !['Converted', 'Lost'].includes(l.status);
+      return fDate >= now && fDate <= sevenDays && !['Converted', 'Lost', 'Disqualified'].includes(l.status);
     }).length;
   }, [leads]);
 
@@ -497,7 +497,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Active Pipeline Leads</p>
             <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">
-              {leads.filter(l => !['Converted', 'Lost'].includes(l.status)).length}
+              {leads.filter(l => !['Converted', 'Lost', 'Disqualified'].includes(l.status)).length}
             </p>
             <p className="text-[10px] text-slate-400">In follow-up cycle</p>
           </div>
@@ -672,6 +672,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
               <option value="Interested">Interested</option>
               <option value="Converted">Converted</option>
               <option value="Lost">Lost</option>
+              <option value="Disqualified">Disqualified</option>
             </select>
 
             {/* Reset Filters */}
@@ -721,7 +722,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
             <div className="grid grid-cols-7 gap-1.5 sm:gap-2 flex-1">
               {calendarDays.map((cell, idx) => {
                 const isSelected = cell.dateString === selectedDayString;
-                const hasOverdue = cell.leads.some(l => isOverdue(l.nextFollowUpDate) && !['Converted', 'Lost'].includes(l.status));
+                const hasOverdue = cell.leads.some(l => isOverdue(l.nextFollowUpDate) && !['Converted', 'Lost', 'Disqualified'].includes(l.status));
 
                 return (
                   <div
@@ -771,7 +772,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
                     {/* Lead Pills Preview inside the cell */}
                     <div className="space-y-1 mt-1">
                       {cell.leads.slice(0, 2).map(lead => {
-                        const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost'].includes(lead.status);
+                        const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost', 'Disqualified'].includes(lead.status);
                         return (
                           <div
                             key={lead.id}
@@ -834,7 +835,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
                 </div>
               ) : (
                 selectedDayLeads.map(lead => {
-                  const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost'].includes(lead.status);
+                  const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost', 'Disqualified'].includes(lead.status);
                   const timeString = lead.nextFollowUpDate
                     ? new Date(lead.nextFollowUpDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                     : '--:--';
@@ -1023,7 +1024,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
                         <p className="text-[10px] text-slate-400 text-center py-6">No calls</p>
                       ) : (
                         dayLeads.map(lead => {
-                          const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost'].includes(lead.status);
+                          const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost', 'Disqualified'].includes(lead.status);
                           return (
                             <div
                               key={lead.id}
@@ -1096,7 +1097,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
                   return ta - tb;
                 })
                 .map(lead => {
-                  const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost'].includes(lead.status);
+                  const overdue = isOverdue(lead.nextFollowUpDate) && !['Converted', 'Lost', 'Disqualified'].includes(lead.status);
 
                   return (
                     <div
@@ -1291,6 +1292,7 @@ export const LeadCalendar: React.FC<LeadCalendarProps> = ({
                   <option value="Interested">Interested</option>
                   <option value="Converted">Converted</option>
                   <option value="Lost">Lost</option>
+                  <option value="Disqualified">Disqualified</option>
                 </select>
               </div>
 

@@ -123,6 +123,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (module === 'Reports & Analytics' && action !== 'view') return false;
         return ['Dashboard', 'Leads', 'Customers', 'Quotations', 'Bank', 'Bank Loan Tracking', 'Maintenance Calendar'].includes(module);
 
+      case 'Telecaller':
+        return ['Dashboard', 'Leads', 'Customers', 'Maintenance Calendar'].includes(module);
+
       case 'Loan Processing Executive':
         return ['Dashboard', 'Bank', 'Bank Loan Tracking', 'Customers', 'Maintenance Calendar', 'Reports & Analytics'].includes(module);
 

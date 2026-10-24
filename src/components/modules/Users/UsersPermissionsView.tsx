@@ -82,11 +82,12 @@ export const UsersPermissionsView: React.FC = () => {
     });
   };
 
-  // 6 Roles defined in proposal
+  // Roles defined in CRM
   const rolesList: UserRole[] = [
     'Administrator',
     'Sales Manager',
     'Sales Executive',
+    'Telecaller',
     'Loan Processing Executive',
     'Service Manager',
     'Service Technician',

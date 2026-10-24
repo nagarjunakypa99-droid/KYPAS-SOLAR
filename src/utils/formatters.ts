@@ -116,3 +116,45 @@ export function exportToCSV(data: Record<string, unknown>[], filename: string): 
   link.click();
   document.body.removeChild(link);
 }
+
+/**
+ * Parses an uploaded Excel (.xlsx, .xls) or CSV file into an array of objects
+ */
+export async function parseExcelOrCSV(file: File): Promise<Record<string, any>[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = e.target?.result;
+        if (!data) {
+          resolve([]);
+          return;
+        }
+        const workbook = XLSX.read(data, { type: 'binary', cellDates: true });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          resolve([]);
+          return;
+        }
+        const worksheet = workbook.Sheets[firstSheetName];
+        const json = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, { defval: '' });
+        resolve(json);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = (err) => reject(err);
+    reader.readAsBinaryString(file);
+  });
+}
+
+/**
+ * Downloads a pre-formatted sample Excel template for bulk import
+ */
+export function downloadSampleTemplate(
+  sampleData: Record<string, any>[],
+  filename: string,
+  sheetName: string = 'Template'
+): void {
+  exportToExcel(sampleData, filename, sheetName);
+}

@@ -120,7 +120,19 @@ export class StorageService {
 
   // Users
   static getUsers(): User[] {
-    return getItem(STORAGE_KEYS.USERS, initialUsers);
+    const list = getItem(STORAGE_KEYS.USERS, initialUsers);
+    const existingIds = new Set(list.map(u => u.id));
+    let hasNew = false;
+    for (const u of initialUsers) {
+      if (!existingIds.has(u.id)) {
+        list.push(u);
+        hasNew = true;
+      }
+    }
+    if (hasNew) {
+      setItem(STORAGE_KEYS.USERS, list);
+    }
+    return list;
   }
   static saveUsers(users: User[]): void {
     setItem(STORAGE_KEYS.USERS, users);
@@ -140,7 +152,19 @@ export class StorageService {
 
   // Leads
   static getLeads(): Lead[] {
-    return getItem(STORAGE_KEYS.LEADS, initialLeads);
+    const list = getItem(STORAGE_KEYS.LEADS, initialLeads);
+    const existingIds = new Set(list.map(l => l.id));
+    let hasNew = false;
+    for (const l of initialLeads) {
+      if (!existingIds.has(l.id)) {
+        list.push(l);
+        hasNew = true;
+      }
+    }
+    if (hasNew) {
+      setItem(STORAGE_KEYS.LEADS, list);
+    }
+    return list;
   }
   static saveLeads(leads: Lead[]): void {
     setItem(STORAGE_KEYS.LEADS, leads);

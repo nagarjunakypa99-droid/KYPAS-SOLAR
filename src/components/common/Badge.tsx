@@ -57,6 +57,10 @@ export const Badge: React.FC<BadgeProps> = ({ status, className = '' }) => {
       case 'expired':
         return 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800';
 
+      // Disqualified / Unqualified
+      case 'disqualified':
+        return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800';
+
       // Low / On Hold / Neutral
       case 'low':
       case 'on hold':

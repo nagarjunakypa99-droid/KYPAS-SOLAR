@@ -13,12 +13,14 @@ import {
   History,
   RotateCcw,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 import { useCRM } from '../../../context/CRMContext';
 import { useAuth } from '../../../context/AuthContext';
 import { AMCContract, AMCStatus } from '../../../types/crm';
 import { Badge } from '../../common/Badge';
 import { formatINR, formatDate, isOverdue, getDaysRemaining, exportToExcel } from '../../../utils/formatters';
+import { DataImportModal, ExpectedColumn } from '../../common/DataImportModal';
 
 export const AMCManagementView: React.FC = () => {
   const { currentUser, hasPermission } = useAuth();
@@ -30,16 +32,92 @@ export const AMCManagementView: React.FC = () => {
     updateAMCContract,
     recordAMCRenewal,
     addMaintenanceVisit,
+    addToast,
   } = useCRM();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [renewingAMC, setRenewingAMC] = useState<AMCContract | null>(null);
   const [renewalValue, setRenewalValue] = useState(15000);
   const [renewalYears, setRenewalYears] = useState(1);
   const [showVisitModal, setShowVisitModal] = useState(false);
   const [visitingAMC, setVisitingAMC] = useState<AMCContract | null>(null);
+
+  const AMC_IMPORT_COLUMNS: ExpectedColumn[] = [
+    { key: 'customerName', label: 'Customer Name', required: true },
+    { key: 'customerMobile', label: 'Customer Mobile', required: true },
+    { key: 'systemCapacityKW', label: 'Capacity kW', required: true },
+    { key: 'contractValue', label: 'Annual Value (₹)', required: true },
+    { key: 'startDate', label: 'Start Date' },
+    { key: 'endDate', label: 'End Date' },
+    { key: 'maintenanceFrequency', label: 'Frequency' },
+  ];
+
+  const AMC_SAMPLE_DATA = [
+    {
+      'Customer Name': 'Venkatesh Rao',
+      'Customer Mobile': '9848022334',
+      'Capacity kW': 5,
+      'Annual Value (₹)': 12000,
+      'Start Date': new Date().toISOString().slice(0, 10),
+      'End Date': new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      'Frequency': 'Quarterly',
+    },
+    {
+      'Customer Name': 'Manish Agarwal',
+      'Customer Mobile': '9848099887',
+      'Capacity kW': 10,
+      'Annual Value (₹)': 22000,
+      'Start Date': new Date().toISOString().slice(0, 10),
+      'End Date': new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      'Frequency': 'Bi-Monthly',
+    },
+  ];
+
+  const handleImportAMC = async (rows: Record<string, any>[]) => {
+    let successCount = 0;
+    rows.forEach((r, idx) => {
+      const custName = r['Customer Name'] || r['customerName'] || `Client ${idx + 1}`;
+      const mob = String(r['Customer Mobile'] || r['customerMobile'] || '9848011223').replace(/\D/g, '').slice(-10);
+      const cap = Number(r['Capacity kW'] || r['systemCapacityKW'] || 5);
+      const val = Number(r['Annual Value (₹)'] || r['contractValue'] || 12000);
+      const start = r['Start Date'] || r['startDate'] || new Date().toISOString().slice(0, 10);
+      const end = r['End Date'] || r['endDate'] || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const freq = (r['Frequency'] || r['maintenanceFrequency'] || 'Quarterly') as AMCContract['maintenanceFrequency'];
+
+      const cust = customers.find(c => c.mobile.includes(mob)) || customers[0];
+      const inst = installations.find(i => i.customerId === cust?.id);
+
+      createAMCContract({
+        customerId: cust ? cust.id : `CUST-AMC-${idx}`,
+        customerName: custName,
+        customerMobile: mob,
+        installationId: inst?.id || `INST-AMC-${idx}`,
+        systemCapacityKW: cap,
+        contractValue: val,
+        startDate: start,
+        endDate: end,
+        renewalDate: end,
+        renewalFollowUpDate: end,
+        maintenanceFrequency: freq,
+        status: 'Active',
+        preventiveSchedule: '4 Scheduled quarterly cleaning and electrical inspection visits',
+        assignedServiceTeam: 'Hyderabad Alpha Operations Team',
+        notes: 'Imported via AMC contract spreadsheet.',
+      });
+      successCount++;
+    });
+
+    setShowImportModal(false);
+    addToast({
+      type: 'success',
+      title: 'AMC Contracts Imported',
+      message: `Successfully ingested ${successCount} AMC contracts.`,
+    });
+    return { success: successCount, skipped: 0 };
+  };
 
   // New Visit State
   const [visitTechnician, setVisitTechnician] = useState('Anji Babu');
@@ -175,6 +253,15 @@ export const AMCManagementView: React.FC = () => {
               <span>Export AMC Report</span>
             </button>
           )}
+
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
+            title="Import AMC Contracts from Excel (.xlsx) or CSV"
+          >
+            <Upload className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+            <span>Import Contracts</span>
+          </button>
 
           {hasPermission('AMC Management', 'create') && (
             <button
@@ -603,6 +690,20 @@ export const AMCManagementView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* BULK IMPORT AMC CONTRACTS MODAL                                           */}
+      {/* ========================================================================= */}
+      <DataImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        title="Import Annual Maintenance Contracts (AMC)"
+        entityName="AMC Contracts"
+        sampleFileName="KYPAS_Solar_AMC_Contracts_Template"
+        sampleData={AMC_SAMPLE_DATA}
+        expectedColumns={AMC_IMPORT_COLUMNS}
+        onImport={handleImportAMC}
+      />
     </div>
   );
 };

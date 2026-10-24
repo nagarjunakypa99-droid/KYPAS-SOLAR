@@ -98,6 +98,7 @@ export const Header: React.FC<HeaderProps> = ({ onNavigate, isSidebarCollapsed }
     'Administrator',
     'Sales Manager',
     'Sales Executive',
+    'Telecaller',
     'Loan Processing Executive',
     'Service Manager',
     'Service Technician',

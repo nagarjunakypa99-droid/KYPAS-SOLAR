@@ -234,6 +234,22 @@ export const LoginPage: React.FC = () => {
                 </div>
                 <div className="text-[10px] text-slate-400 truncate">Anji Babu</div>
               </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickLogin('Telecaller')}
+                className="col-span-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-left border border-slate-700/60 hover:border-indigo-500 transition-all text-xs flex items-center justify-between"
+              >
+                <div>
+                  <div className="font-bold text-white flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" /> Telecaller Desk
+                  </div>
+                  <div className="text-[10px] text-slate-400 truncate">Kavitha Reddy / Suma Latha</div>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300">
+                  Quick Inbound Calls
+                </span>
+              </button>
             </div>
           </div>
         </div>

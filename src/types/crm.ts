@@ -7,6 +7,7 @@ export type UserRole =
   | 'Administrator'
   | 'Sales Manager'
   | 'Sales Executive'
+  | 'Telecaller'
   | 'Loan Processing Executive'
   | 'Service Manager'
   | 'Service Technician';
@@ -28,7 +29,14 @@ export type LeadSource =
   | 'Website'
   | 'Referral'
   | 'Marketing Campaign'
-  | 'Field Sales';
+  | 'Field Sales'
+  | 'Facebook Meta Ads'
+  | 'Instagram Ads'
+  | 'Google Ads'
+  | 'WhatsApp Inbound'
+  | 'Exhibition / Expo'
+  | 'Walk-in'
+  | 'Channel Partner / Dealer';
 
 export type LeadStatus = 
   | 'New'
@@ -36,7 +44,8 @@ export type LeadStatus =
   | 'Follow-up'
   | 'Interested'
   | 'Converted'
-  | 'Lost';
+  | 'Lost'
+  | 'Disqualified';
 
 export type SolarRequirement = 
   | 'Rooftop Residential'
@@ -67,14 +76,24 @@ export interface Lead {
   customerPreferences: CustomerPreference;
   assignedExecutiveId: string;
   assignedExecutiveName: string;
+  assignedTelecallerId?: string;
+  assignedTelecallerName?: string;
   nextFollowUpDate: string;
   status: LeadStatus;
   paymentPreference?: 'Loan' | 'Bank' | 'Cash';
   lostReason?: string;
+  disqualifiedReason?: string;
   notes: string;
   createdAt: string;
   updatedAt: string;
   convertedCustomerId?: string;
+  // Meta Lead Ads Webhook Attributes
+  metaCampaignId?: string;
+  metaCampaignName?: string;
+  metaFormId?: string;
+  metaAdId?: string;
+  metaLeadgenId?: string;
+  metaReceivedAt?: string;
 }
 
 export type PaymentCategory = 'Loan' | 'Bank' | 'Cash';
@@ -127,6 +146,8 @@ export interface Customer {
   paymentMode?: PaymentCategory;
   totalProjectCost?: number;
   totalPaid?: number;
+  consumerNumber?: string;
+  sanctionedLoadKW?: number;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -194,6 +215,39 @@ export interface Quotation {
   convertedToInstallationId?: string;
   createdAt: string;
   updatedAt: string;
+  // Advanced & Custom PDF fields
+  subsidyAmount?: number;
+  netPayableAfterSubsidy?: number;
+  logoUrl?: string;
+  showLogo?: boolean;
+  logoSize?: 'small' | 'medium' | 'large';
+  selectedPaymentMode?: 'All' | 'Loan' | 'Bank' | 'Cash';
+  consumerNumber?: string;
+  sanctionedLoadKW?: number;
+  customCompanyDetails?: {
+    companyName?: string;
+    tagline?: string;
+    address?: string;
+    phone?: string;
+    email?: string;
+    gstin?: string;
+    cin?: string;
+    pan?: string;
+    website?: string;
+  };
+  loanDetails?: {
+    bankPartner?: string;
+    downPaymentPercent?: number;
+    downPaymentAmount?: number;
+    loanAmount?: number;
+    interestRate?: number;
+    tenureYears?: number;
+    monthlyEMI?: number;
+    monthlySavings?: number;
+  };
+  signatoryName?: string;
+  signatoryDesignation?: string;
+  showDigitalSeal?: boolean;
 }
 
 export type LoanStatus = 

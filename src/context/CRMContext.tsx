@@ -56,25 +56,30 @@ interface CRMContextType {
 
   // Leads Actions
   createLead: (lead: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>) => { success: boolean; leadId?: string; error?: string };
+  importLeadsBatch: (leadsList: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>[]) => { success: number; skipped: number };
   updateLead: (id: string, updates: Partial<Lead>) => void;
   deleteLead: (id: string) => void;
   convertLeadToCustomer: (leadId: string) => { success: boolean; customerId?: string; error?: string };
 
   // Customer Actions
   createCustomer: (customer: Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>) => { success: boolean; customerId?: string };
+  importCustomersBatch: (customersList: Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>[]) => { success: number; skipped: number };
   updateCustomer: (id: string, updates: Partial<Customer>) => void;
   deleteCustomer: (id: string) => void;
   addInteraction: (interaction: Omit<CustomerInteraction, 'id' | 'date'>) => void;
 
   // Quotation Actions
   createQuotation: (quote: Omit<Quotation, 'id' | 'quotationNumber' | 'version' | 'revisions' | 'createdAt' | 'updatedAt'>) => { success: boolean; quotationId?: string };
+  importQuotationsBatch: (quotesList: Omit<Quotation, 'id' | 'quotationNumber' | 'version' | 'revisions' | 'createdAt' | 'updatedAt'>[]) => { success: number; skipped: number };
   updateQuotation: (id: string, updates: Partial<Quotation>) => void;
+  deleteQuotation: (id: string) => void;
   reviseQuotation: (id: string, revisionNotes: string, newTotalOverrides?: Partial<Quotation>) => void;
   duplicateQuotation: (id: string) => string;
   convertQuotationToInstallation: (quotationId: string) => { success: boolean; installationId?: string; error?: string };
 
   // Loan Actions
   createLoan: (loan: Omit<LoanApplication, 'id' | 'createdAt' | 'updatedAt'>) => { success: boolean; loanId?: string };
+  importLoansBatch: (loansList: Omit<LoanApplication, 'id' | 'createdAt' | 'updatedAt'>[]) => { success: number; skipped: number };
   updateLoan: (id: string, updates: Partial<LoanApplication>) => void;
   toggleLoanDoc: (loanId: string, docId: string, submitted: boolean, notes?: string) => void;
 
@@ -238,6 +243,69 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return { success: true, leadId };
+  };
+
+  const importLeadsBatch = (leadsList: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>[]): { success: number; skipped: number } => {
+    if (!leadsList || leadsList.length === 0) return { success: 0, skipped: 0 };
+    
+    let successCount = 0;
+    let skippedCount = 0;
+    const now = new Date().toISOString();
+    const newItems: Lead[] = [];
+    const currentLeads = [...leads];
+
+    leadsList.forEach((item, index) => {
+      const cleanPhone = (item.mobile || '').replace(/\D/g, '').slice(-10);
+      // Skip if phone is invalid or already present in current batch or existing leads
+      if (!cleanPhone || cleanPhone.length < 10) {
+        skippedCount++;
+        return;
+      }
+
+      const isDuplicate = currentLeads.some(l => (l.mobile || '').replace(/\D/g, '').slice(-10) === cleanPhone) ||
+                          newItems.some(l => (l.mobile || '').replace(/\D/g, '').slice(-10) === cleanPhone);
+
+      if (isDuplicate) {
+        skippedCount++;
+        return;
+      }
+
+      const nextNum = currentLeads.length + newItems.length + 1;
+      const leadId = `KYP-LD-2026-${String(nextNum).padStart(3, '0')}`;
+      newItems.push({
+        ...item,
+        id: leadId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      successCount++;
+    });
+
+    if (newItems.length > 0) {
+      const updated = [...newItems, ...leads];
+      setLeads(updated);
+      StorageService.saveLeads(updated);
+
+      StorageService.addAuditLog({
+        userId: currentUser?.id || 'SYS',
+        userName: currentUser?.name || 'System User',
+        userRole: currentUser?.role || 'Administrator',
+        action: 'CREATE',
+        module: 'Leads',
+        recordId: 'BATCH_IMPORT',
+        recordIdentifier: `${successCount} Leads`,
+        details: `Bulk imported ${successCount} leads from spreadsheet (${skippedCount} duplicates/invalid skipped).`,
+      });
+      setAuditLogs(StorageService.getAuditLogs());
+
+      addToast({
+        type: 'success',
+        title: 'Leads Bulk Imported',
+        message: `Successfully ingested ${successCount} leads into CRM database.`,
+      });
+    }
+
+    return { success: successCount, skipped: skippedCount };
   };
 
   const updateLead = (id: string, updates: Partial<Lead>) => {
@@ -410,6 +478,68 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, customerId };
   };
 
+  const importCustomersBatch = (customersList: Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>[]): { success: number; skipped: number } => {
+    if (!customersList || customersList.length === 0) return { success: 0, skipped: 0 };
+
+    let successCount = 0;
+    let skippedCount = 0;
+    const now = new Date().toISOString();
+    const newItems: Customer[] = [];
+    const currentCusts = [...customers];
+
+    customersList.forEach((item, index) => {
+      const cleanPhone = (item.mobile || '').replace(/\D/g, '').slice(-10);
+      if (!cleanPhone || cleanPhone.length < 10) {
+        skippedCount++;
+        return;
+      }
+
+      const isDuplicate = currentCusts.some(c => (c.mobile || '').replace(/\D/g, '').slice(-10) === cleanPhone) ||
+                          newItems.some(c => (c.mobile || '').replace(/\D/g, '').slice(-10) === cleanPhone);
+
+      if (isDuplicate) {
+        skippedCount++;
+        return;
+      }
+
+      const nextNum = 1000 + currentCusts.length + newItems.length + 1;
+      const customerId = `KYP-CUST-${nextNum}`;
+      newItems.push({
+        ...item,
+        id: customerId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      successCount++;
+    });
+
+    if (newItems.length > 0) {
+      const updated = [...newItems, ...customers];
+      setCustomers(updated);
+      StorageService.saveCustomers(updated);
+
+      StorageService.addAuditLog({
+        userId: currentUser?.id || 'SYS',
+        userName: currentUser?.name || 'System User',
+        userRole: currentUser?.role || 'Administrator',
+        action: 'CREATE',
+        module: 'Customers',
+        recordId: 'BATCH_IMPORT',
+        recordIdentifier: `${successCount} Customers`,
+        details: `Bulk imported ${successCount} customers from spreadsheet (${skippedCount} duplicates/invalid skipped).`,
+      });
+      setAuditLogs(StorageService.getAuditLogs());
+
+      addToast({
+        type: 'success',
+        title: 'Customers Bulk Imported',
+        message: `Successfully ingested ${successCount} customers into CRM database.`,
+      });
+    }
+
+    return { success: successCount, skipped: skippedCount };
+  };
+
   const updateCustomer = (id: string, updates: Partial<Customer>) => {
     const updated = customers.map(c => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c));
     setCustomers(updated);
@@ -513,6 +643,56 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, quotationId };
   };
 
+  const importQuotationsBatch = (quotesList: Omit<Quotation, 'id' | 'quotationNumber' | 'version' | 'revisions' | 'createdAt' | 'updatedAt'>[]): { success: number; skipped: number } => {
+    if (!quotesList || quotesList.length === 0) return { success: 0, skipped: 0 };
+
+    let successCount = 0;
+    const now = new Date().toISOString();
+    const newItems: Quotation[] = [];
+
+    quotesList.forEach((item, index) => {
+      const nextNum = quotations.length + newItems.length + 1;
+      const quotationId = `KYP-QT-2026-${String(nextNum).padStart(3, '0')}`;
+      const quotationNumber = `KYP/QT/26-27/${String(nextNum + 40).padStart(3, '0')}`;
+      newItems.push({
+        ...item,
+        id: quotationId,
+        quotationNumber,
+        version: 1,
+        revisions: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      successCount++;
+    });
+
+    if (newItems.length > 0) {
+      const updated = [...newItems, ...quotations];
+      setQuotations(updated);
+      StorageService.saveQuotations(updated);
+
+      StorageService.addAuditLog({
+        userId: currentUser?.id || 'SYS',
+        userName: currentUser?.name || 'System User',
+        userRole: currentUser?.role || 'Administrator',
+        action: 'CREATE',
+        module: 'Quotations',
+        recordId: 'BATCH_IMPORT',
+        recordIdentifier: `${successCount} Proposals`,
+        details: `Bulk imported ${successCount} quotations from spreadsheet.`,
+      });
+      setAuditLogs(StorageService.getAuditLogs());
+
+      addToast({
+        type: 'success',
+        title: 'Quotations Bulk Imported',
+        message: `Successfully imported ${successCount} quotations into CRM database.`,
+      });
+    }
+
+    return { success: successCount, skipped: 0 };
+  };
+
   const updateQuotation = (id: string, updates: Partial<Quotation>) => {
     const updated = quotations.map(q => (q.id === id ? { ...q, ...updates, updatedAt: new Date().toISOString() } : q));
     setQuotations(updated);
@@ -536,6 +716,33 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       title: 'Quotation Saved',
       message: `Quotation ${quote?.quotationNumber || id} updated.`,
     });
+  };
+
+  const deleteQuotation = (id: string) => {
+    const quote = quotations.find(q => q.id === id);
+    const updated = quotations.filter(q => q.id !== id);
+    setQuotations(updated);
+    StorageService.saveQuotations(updated);
+
+    if (quote) {
+      StorageService.addAuditLog({
+        userId: currentUser?.id || 'SYS',
+        userName: currentUser?.name || 'System User',
+        userRole: currentUser?.role || 'Administrator',
+        action: 'DELETE',
+        module: 'Quotations',
+        recordId: id,
+        recordIdentifier: quote.quotationNumber,
+        details: `Deleted quotation ${quote.quotationNumber} (${quote.customerName}).`,
+      });
+      setAuditLogs(StorageService.getAuditLogs());
+
+      addToast({
+        type: 'info',
+        title: 'Quotation Deleted',
+        message: `Quotation ${quote.quotationNumber} permanently deleted.`,
+      });
+    }
   };
 
   const reviseQuotation = (id: string, revisionNotes: string, newTotalOverrides?: Partial<Quotation>) => {
@@ -743,6 +950,52 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return { success: true, loanId };
+  };
+
+  const importLoansBatch = (loansList: Omit<LoanApplication, 'id' | 'createdAt' | 'updatedAt'>[]): { success: number; skipped: number } => {
+    if (!loansList || loansList.length === 0) return { success: 0, skipped: 0 };
+
+    let successCount = 0;
+    const now = new Date().toISOString();
+    const newItems: LoanApplication[] = [];
+
+    loansList.forEach((item) => {
+      const nextNum = loans.length + newItems.length + 1;
+      const loanId = `KYP-LN-${String(nextNum + 100)}`;
+      newItems.push({
+        ...item,
+        id: loanId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      successCount++;
+    });
+
+    if (newItems.length > 0) {
+      const updated = [...newItems, ...loans];
+      setLoans(updated);
+      StorageService.saveLoans(updated);
+
+      StorageService.addAuditLog({
+        userId: currentUser?.id || 'SYS',
+        userName: currentUser?.name || 'System User',
+        userRole: currentUser?.role || 'Administrator',
+        action: 'CREATE',
+        module: 'Loans',
+        recordId: 'BATCH_IMPORT',
+        recordIdentifier: `${successCount} Loan Records`,
+        details: `Bulk imported ${successCount} loan applications from spreadsheet.`,
+      });
+      setAuditLogs(StorageService.getAuditLogs());
+
+      addToast({
+        type: 'success',
+        title: 'Loans Bulk Imported',
+        message: `Successfully imported ${successCount} loan applications into financing tracker.`,
+      });
+    }
+
+    return { success: successCount, skipped: 0 };
   };
 
   const updateLoan = (id: string, updates: Partial<LoanApplication>) => {
@@ -1177,22 +1430,27 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCustomerPaymentMode,
 
         createLead,
+        importLeadsBatch,
         updateLead,
         deleteLead,
         convertLeadToCustomer,
 
         createCustomer,
+        importCustomersBatch,
         updateCustomer,
         deleteCustomer,
         addInteraction,
 
         createQuotation,
+        importQuotationsBatch,
         updateQuotation,
+        deleteQuotation,
         reviseQuotation,
         duplicateQuotation,
         convertQuotationToInstallation,
 
         createLoan,
+        importLoansBatch,
         updateLoan,
         toggleLoanDoc,
 

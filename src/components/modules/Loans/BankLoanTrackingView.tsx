@@ -29,6 +29,7 @@ import {
   ShieldCheck,
   ChevronRight,
   Eye,
+  UploadCloud,
 } from 'lucide-react';
 import { useCRM } from '../../../context/CRMContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -42,6 +43,7 @@ import {
 } from '../../../types/crm';
 import { Badge } from '../../common/Badge';
 import { formatINR, formatDate, isOverdue, exportToExcel } from '../../../utils/formatters';
+import { DataImportModal } from '../../common/DataImportModal';
 
 type BankModuleSubTab = 'overview' | 'loans' | 'bank' | 'cash';
 
@@ -52,6 +54,7 @@ export const BankLoanTrackingView: React.FC = () => {
     customers,
     transactions,
     createLoan,
+    importLoansBatch,
     updateLoan,
     toggleLoanDoc,
     createTransaction,
@@ -70,6 +73,7 @@ export const BankLoanTrackingView: React.FC = () => {
   const [loanStatusFilter, setLoanStatusFilter] = useState<string>('all');
   const [loanBankFilter, setLoanBankFilter] = useState<string>('all');
   const [showAddLoanModal, setShowAddLoanModal] = useState(false);
+  const [showImportLoansModal, setShowImportLoansModal] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState<LoanApplication | null>(null);
 
   // Bank Direct Payments State
@@ -433,6 +437,94 @@ export const BankLoanTrackingView: React.FC = () => {
     exportToExcel(data, `Kypas_Solar_Cash_Receipts_${new Date().toISOString().slice(0, 10)}`);
   };
 
+  const loanSampleTemplate = [
+    {
+      'Customer Name': 'K. Satyanarayana Rao',
+      'Mobile': '9849012345',
+      'Bank Name': 'State Bank of India (PM Surya Ghar)',
+      'Application Ref': 'SBI-SG-2026-901',
+      'Requested Amount': 250000,
+      'Approved Amount': 200000,
+      'Status': 'Under Verification',
+      'Verification Status': 'In Progress',
+      'Bank Officer Name': 'Praveen Kumar',
+      'Bank Officer Contact': '9848123456',
+      'Follow Up Date': '2026-04-10',
+      'Notes': 'Aadhaar and electricity bills submitted. Site inspection pending by bank field inspector.',
+    },
+    {
+      'Customer Name': 'Lakshmi Narayana Textiles',
+      'Mobile': '9849023456',
+      'Bank Name': 'Canara Bank (Green Energy SME)',
+      'Application Ref': 'CAN-GE-8842',
+      'Requested Amount': 750000,
+      'Approved Amount': 700000,
+      'Status': 'Approved',
+      'Verification Status': 'Approved',
+      'Bank Officer Name': 'Swapna V.',
+      'Bank Officer Contact': '9848234567',
+      'Follow Up Date': '2026-04-05',
+      'Notes': 'Sanction letter issued. Customer margin money received in company account.',
+    },
+  ];
+
+  const loanExpectedColumns = [
+    { key: 'Customer Name', label: 'Customer Name', required: true, example: 'K. Satyanarayana Rao' },
+    { key: 'Mobile', label: 'Mobile Number', required: true, example: '9849012345' },
+    { key: 'Bank Name', label: 'Bank Name', required: true, example: 'State Bank of India' },
+    { key: 'Application Ref', label: 'Application Ref / Loan ID', required: true, example: 'SBI-SG-2026-901' },
+    { key: 'Requested Amount', label: 'Requested Amount (₹)', required: false, example: '250000' },
+    { key: 'Approved Amount', label: 'Approved Amount (₹)', required: false, example: '200000' },
+    { key: 'Status', label: 'Loan Status', required: false, example: 'Under Verification' },
+    { key: 'Verification Status', label: 'Verification Status', required: false, example: 'In Progress' },
+    { key: 'Bank Officer Name', label: 'Bank Representative', required: false, example: 'Praveen Kumar' },
+    { key: 'Bank Officer Contact', label: 'Officer Contact', required: false, example: '9848123456' },
+    { key: 'Follow Up Date', label: 'Follow Up Date', required: false, example: '2026-04-10' },
+    { key: 'Notes', label: 'Remarks / Notes', required: false, example: 'Documents submitted' },
+  ];
+
+  const handleImportLoans = async (rows: Record<string, any>[]) => {
+    const batch = rows.map((r, idx) => {
+      const custName = String(r['Customer Name'] || r['Customer'] || r['customer'] || `Customer ${idx + 1}`).trim();
+      const custMobile = String(r['Mobile'] || r['Phone'] || r['Contact'] || '9800000000').trim();
+
+      const matchedCust = customers.find(
+        c =>
+          c.mobile.replace(/\D/g, '').slice(-10) === custMobile.replace(/\D/g, '').slice(-10) ||
+          c.name.toLowerCase() === custName.toLowerCase()
+      );
+
+      const initialDocs: LoanDocumentItem[] = standardDocsList.map((docName, dIdx) => ({
+        id: `DOC-${dIdx + 1}`,
+        name: docName,
+        required: true,
+        submitted: dIdx < 2,
+        submissionDate: dIdx < 2 ? new Date().toISOString() : undefined,
+      }));
+
+      return {
+        customerId: matchedCust ? matchedCust.id : `CUST-IMP-${idx + 1}`,
+        customerName: matchedCust ? matchedCust.name : custName,
+        customerMobile: matchedCust ? matchedCust.mobile : custMobile,
+        bankName: String(r['Bank Name'] || r['Bank'] || 'State Bank of India (PM Surya Ghar)').trim(),
+        applicationRefNo: String(r['Application Ref'] || r['Ref No'] || `LN-REF-${Math.floor(1000 + Math.random() * 9000)}`).trim(),
+        applicationDate: new Date().toISOString().slice(0, 10),
+        loanAmountRequested: Number(r['Requested Amount'] || r['Requested (₹)'] || 250000) || 250000,
+        loanAmountApproved: Number(r['Approved Amount'] || r['Approved (₹)'] || 0) || 0,
+        documents: initialDocs,
+        bankRepName: String(r['Bank Officer Name'] || r['Bank Officer'] || 'Branch Solar Officer').trim(),
+        bankRepContact: String(r['Bank Officer Contact'] || '1800-425-3800').trim(),
+        verificationStatus: (r['Verification Status'] || 'Pending') as any,
+        followUpDate: String(r['Follow Up Date'] || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)),
+        status: (r['Status'] || 'Application Submitted') as LoanStatus,
+        notes: String(r['Notes'] || 'Imported from financing spreadsheet.').trim(),
+      };
+    });
+
+    const res = importLoansBatch(batch);
+    return { success: res.success, skipped: res.skipped };
+  };
+
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
       {/* Top Header */}
@@ -460,6 +552,13 @@ export const BankLoanTrackingView: React.FC = () => {
 
           {activeSubTab === 'loans' && hasPermission('Bank', 'create') && (
             <>
+              <button
+                onClick={() => setShowImportLoansModal(true)}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Import Loans</span>
+              </button>
               <button
                 onClick={handleExportLoans}
                 className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
@@ -2047,6 +2146,18 @@ export const BankLoanTrackingView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Data Import Modal for Loans */}
+      <DataImportModal
+        isOpen={showImportLoansModal}
+        onClose={() => setShowImportLoansModal(false)}
+        title="Bulk Import Loan Applications"
+        entityName="Loan Applications"
+        expectedColumns={loanExpectedColumns}
+        sampleData={loanSampleTemplate}
+        sampleFileName="Kypas_Solar_Loan_Applications_Template.xlsx"
+        onImport={handleImportLoans}
+      />
     </div>
   );
 };
