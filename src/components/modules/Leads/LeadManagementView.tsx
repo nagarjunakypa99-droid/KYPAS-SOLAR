@@ -21,6 +21,9 @@ import {
   Sparkles,
   CalendarDays,
   LayoutList,
+  Eye,
+  Sun,
+  User,
 } from 'lucide-react';
 import { LeadCalendar } from './LeadCalendar';
 import { useCRM } from '../../../context/CRMContext';
@@ -435,7 +438,11 @@ export const LeadManagementView: React.FC = () => {
                     >
                       {/* ID & Name */}
                       <td className="py-3 px-4">
-                        <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                        <div
+                          onClick={() => setViewingLead(lead)}
+                          className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 hover:text-blue-600 cursor-pointer transition-colors"
+                          title="Click to view full lead profile & follow-up agenda"
+                        >
                           {lead.customerName}
                           {lead.convertedCustomerId && (
                             <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.2 rounded font-bold">
@@ -518,6 +525,15 @@ export const LeadManagementView: React.FC = () => {
                               <UserCheck className="w-4 h-4" />
                             </button>
                           )}
+
+                          {/* View Details */}
+                          <button
+                            onClick={() => setViewingLead(lead)}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors"
+                            title="View Lead Profile & Follow-up Agenda"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
 
                           {/* Edit */}
                           {hasPermission('Leads', 'edit') && (
@@ -860,6 +876,234 @@ export const LeadManagementView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lead Profile Details Modal (Triggered by Lead Calendar or Directory Table) */}
+      {viewingLead && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-6 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-black text-lg flex items-center justify-center shadow-md">
+                  {viewingLead.customerName.charAt(0)}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                      {viewingLead.customerName}
+                    </h2>
+                    <Badge status={viewingLead.status} />
+                    {viewingLead.convertedCustomerId && (
+                      <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                        Customer {viewingLead.convertedCustomerId}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 font-mono mt-0.5">
+                    Lead ID: {viewingLead.id} • Created: {formatDate(viewingLead.createdAt)}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setViewingLead(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5">
+              {/* Scheduled Follow-up Banner */}
+              <div className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
+                viewingLead.nextFollowUpDate && isOverdue(viewingLead.nextFollowUpDate) && !['Converted', 'Lost'].includes(viewingLead.status)
+                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                  : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200'
+              }`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-white/80 dark:bg-slate-900/80 flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider opacity-75">
+                      Next Scheduled Follow-up
+                    </p>
+                    <p className="text-base font-black">
+                      {formatDate(viewingLead.nextFollowUpDate, true)}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const targetLead = viewingLead;
+                    setViewingLead(null);
+                    handleOpenEditModal(targetLead);
+                  }}
+                  className="px-3 py-1.5 bg-white dark:bg-slate-900 hover:bg-blue-50 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-bold border border-blue-200 dark:border-blue-800 shadow-xs cursor-pointer"
+                >
+                  Reschedule
+                </button>
+              </div>
+
+              {/* Contact & Location Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Contact Information
+                  </p>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 flex items-center gap-1.5">
+                        <Phone className="w-3.5 h-3.5 text-emerald-600" /> Mobile:
+                      </span>
+                      <a
+                        href={`tel:${viewingLead.mobile}`}
+                        className="font-black text-blue-600 hover:underline"
+                      >
+                        {viewingLead.mobile}
+                      </a>
+                    </div>
+                    {viewingLead.email && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5 text-blue-600" /> Email:
+                        </span>
+                        <a
+                          href={`mailto:${viewingLead.email}`}
+                          className="font-medium text-slate-800 dark:text-slate-200 hover:underline truncate max-w-[180px]"
+                        >
+                          {viewingLead.email}
+                        </a>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-slate-400" /> Executive:
+                      </span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">
+                        {viewingLead.assignedExecutiveName}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Location & Site
+                  </p>
+                  <div className="space-y-1 text-xs">
+                    <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-rose-500" />
+                      {viewingLead.city}, {viewingLead.state} - {viewingLead.pincode}
+                    </p>
+                    {viewingLead.fullAddress && (
+                      <p className="text-slate-500 text-[11px]">
+                        {viewingLead.fullAddress}
+                      </p>
+                    )}
+                    <div className="pt-1 flex items-center justify-between text-slate-500">
+                      <span>Source:</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">{viewingLead.source}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Solar Project Requirements */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-3">
+                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Solar Technical Specs
+                </p>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Requirement</p>
+                    <p className="text-xs font-black text-slate-900 dark:text-white mt-1">
+                      {viewingLead.solarRequirement}
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">System Capacity</p>
+                    <p className="text-sm font-black text-blue-600 dark:text-blue-400 mt-1">
+                      {viewingLead.systemCapacityKW} kW
+                    </p>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">Customer Preference</p>
+                    <p className="text-xs font-black text-slate-900 dark:text-white mt-1">
+                      {viewingLead.customerPreferences}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Discussion Notes */}
+              {viewingLead.notes && (
+                <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-1.5">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Discussion Notes & Logged Remarks
+                  </p>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 italic bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    "{viewingLead.notes}"
+                  </p>
+                </div>
+              )}
+
+              {viewingLead.status === 'Lost' && viewingLead.lostReason && (
+                <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs">
+                  <strong>Reason for Lost Opportunity:</strong> {viewingLead.lostReason}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Actions */}
+            <div className="p-4 bg-slate-50/80 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <a
+                  href={`tel:${viewingLead.mobile}`}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+                >
+                  <Phone className="w-3.5 h-3.5" /> Call Customer
+                </a>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {viewingLead.status !== 'Converted' && (
+                  <button
+                    onClick={() => {
+                      const target = viewingLead;
+                      setViewingLead(null);
+                      handleConvertToCustomer(target);
+                    }}
+                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Convert to Customer
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    const target = viewingLead;
+                    setViewingLead(null);
+                    handleOpenEditModal(target);
+                  }}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Edit2 className="w-3.5 h-3.5" /> Edit Lead
+                </button>
+
+                <button
+                  onClick={() => setViewingLead(null)}
+                  className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
