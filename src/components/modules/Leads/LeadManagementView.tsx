@@ -2,14 +2,10 @@ import React, { useState, useMemo } from 'react';
 import {
   UserPlus,
   Search,
-  Filter,
-  Download,
-  Calendar,
   Phone,
   Mail,
   MapPin,
   Clock,
-  ArrowRight,
   Edit2,
   Trash2,
   CheckCircle2,
@@ -18,51 +14,45 @@ import {
   X,
   FileSpreadsheet,
   FileDown,
-  Sparkles,
-  CalendarDays,
-  LayoutList,
-  Eye,
-  Sun,
-  User,
-  Headphones,
+  Upload,
   Zap,
-  Copy,
-  Check,
-  Ban,
   MessageCircle,
   Globe,
-  Building2,
-  Share2,
+  Sun,
   Layers,
-  ExternalLink,
-  Radio,
-  SlidersHorizontal,
-  Upload,
+  Eye,
+  Check,
+  Copy,
+  Headphones,
+  Ban,
+  User,
+  List,
+  Calendar as CalendarIcon,
+  Sparkles,
 } from 'lucide-react';
-import { LeadCalendar } from './LeadCalendar';
 import { useCRM } from '../../../context/CRMContext';
 import { useAuth } from '../../../context/AuthContext';
 import { Lead, LeadSource, LeadStatus, SolarRequirement, CustomerPreference } from '../../../types/crm';
 import { Badge } from '../../common/Badge';
-import { formatDate, isOverdue, exportToExcel, exportToCSV } from '../../../utils/formatters';
-import { StorageService } from '../../../services/storageService';
 import { DataImportModal, ExpectedColumn } from '../../common/DataImportModal';
+import { formatDate, isOverdue, exportToExcel, exportToCSV } from '../../../utils/formatters';
+import { LeadCalendar } from './LeadCalendar';
 
-// Standard solar lead disqualification reasons
-const DISQUALIFIED_REASONS = [
-  'Rooftop Shadowed / Insufficient Roof Area (<200 sqft)',
-  'Tenant / Rented Property (No Roof Ownership Rights)',
-  'Location Outside KYPAS Service Territory',
-  'Budget Mismatch / Unwilling to Invest in Solar',
-  'Single Phase Grid Connection (Incompatible with Required Capacity)',
-  'Invalid / Unreachable Phone Number',
-  'No Genuine Solar Interest / Accidental Ad Click',
-  'Opted for Competitor / Alternative Energy Solution',
-  'Other / Custom Disqualification Reason',
-];
+export interface AIScoreResult {
+  leadId: string;
+  score: number;
+  tier: 'HOT' | 'WARM' | 'COLD / NURTURE';
+  urgency: string;
+  recommendedAction: string;
+  estimatedSubsidy: number;
+  conversionProbability: string;
+}
 
-// Expanded lead sources
-const EXPANDED_SOURCES: LeadSource[] = [
+export interface SolarSizingResult {
+  recommendedKW: number;
+}
+
+const LEAD_SOURCES: LeadSource[] = [
   'Facebook Meta Ads',
   'Instagram Ads',
   'Google Ads',
@@ -76,7 +66,6 @@ const EXPANDED_SOURCES: LeadSource[] = [
   'Channel Partner / Dealer',
 ];
 
-// Meta Campaign Presets
 const META_CAMPAIGNS = [
   {
     id: 'CAMP_META_SURYA_GHAR_HYD_2026',
@@ -100,10 +89,27 @@ const META_CAMPAIGNS = [
   },
 ];
 
-export const LeadManagementView: React.FC = () => {
+const DISQUALIFICATION_REASONS = [
+  'Rooftop Shadowed / Insufficient Roof Area (<200 sqft)',
+  'Tenant / Rented Property (No Roof Ownership Rights)',
+  'Location Outside KYPAS Service Territory',
+  'Budget Mismatch / Unwilling to Invest in Solar',
+  'Single Phase Grid Connection (Incompatible with Required Capacity)',
+  'Invalid / Unreachable Phone Number',
+  'No Genuine Solar Interest / Accidental Ad Click',
+  'Opted for Competitor / Alternative Energy Solution',
+  'Other / Custom Disqualification Reason',
+];
+
+interface LeadManagementViewProps {
+  onNavigateToQuotation?: (lead?: Partial<Lead>) => void;
+}
+
+export const LeadManagementView: React.FC<LeadManagementViewProps> = () => {
   const { currentUser, hasPermission, users } = useAuth();
   const {
     leads,
+    customers,
     createLead,
     importLeadsBatch,
     updateLead,
@@ -113,42 +119,64 @@ export const LeadManagementView: React.FC = () => {
     addToast,
   } = useCRM();
 
-  // Extract active telecallers from system users
+  // Active Telecallers list
   const telecallers = useMemo(() => {
-    const fromUsers = users.filter(u => u.role === 'Telecaller' && u.isActive);
-    if (fromUsers.length > 0) return fromUsers;
-    return [
-      { id: 'USR-007', name: 'Kavitha Reddy', phone: '+91 98480 88123', email: 'telecaller.kavitha@kypassolar.com', role: 'Telecaller' as const, isActive: true, department: 'Sales' as const, createdAt: '' },
-      { id: 'USR-008', name: 'Suma Latha', phone: '+91 98480 88124', email: 'telecaller.suma@kypassolar.com', role: 'Telecaller' as const, isActive: true, department: 'Sales' as const, createdAt: '' },
-    ];
+    const activeTc = users.filter((u) => u.role === 'Telecaller' && u.isActive);
+    return activeTc.length > 0
+      ? activeTc
+      : [
+          {
+            id: 'USR-007',
+            name: 'Kavitha Reddy',
+            phone: '+91 98480 88123',
+            email: 'telecaller.kavitha@kypassolar.com',
+            role: 'Telecaller' as const,
+            isActive: true,
+            department: 'Sales' as const,
+            createdAt: '',
+          },
+          {
+            id: 'USR-008',
+            name: 'Suma Latha',
+            phone: '+91 98480 88124',
+            email: 'telecaller.suma@kypassolar.com',
+            role: 'Telecaller' as const,
+            isActive: true,
+            department: 'Sales' as const,
+            createdAt: '',
+          },
+        ];
   }, [users]);
 
-  // View Switcher: Directory vs Lead Calendar
+  // View Tab & Filters State
   const [activeView, setActiveView] = useState<'directory' | 'calendar'>('directory');
-
-  // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [requirementFilter, setRequirementFilter] = useState<string>('all');
-  const [executiveFilter, setExecutiveFilter] = useState<string>('all');
+  const [execFilter, setExecFilter] = useState<string>('all');
   const [telecallerFilter, setTelecallerFilter] = useState<string>('all');
-  const [quickFilter, setQuickFilter] = useState<'all' | 'new' | 'followup' | 'converted' | 'disqualified' | 'meta' | 'unassigned_tc'>('all');
+  const [quickChip, setQuickChip] = useState<string>('all');
 
-  // Modals state
-  const [showAddModal, setShowAddModal] = useState(false);
+  // Modals State
+  const [showModal, setShowModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
-  const [viewingLead, setViewingLead] = useState<Lead | null>(null);
+  const [viewLead, setViewLead] = useState<Lead | null>(null);
+  const [showMetaWebhookModal, setShowMetaWebhookModal] = useState(false);
 
-  // Dedicated feature modals
-  const [showMetaTriggerModal, setShowMetaTriggerModal] = useState(false);
-  const [assigningTelecallerLead, setAssigningTelecallerLead] = useState<Lead | null>(null);
-  const [selectedTelecallerForAssign, setSelectedTelecallerForAssign] = useState<string>('');
-  const [telecallerAssignNote, setTelecallerAssignNote] = useState<string>('');
+  // Telecaller Assignment Modal State
+  const [assignTelecallerLead, setAssignTelecallerLead] = useState<Lead | null>(null);
+  const [selectedTelecallerName, setSelectedTelecallerName] = useState<string>('');
+  const [telecallerCallNote, setTelecallerCallNote] = useState<string>('');
 
-  // Bulk Import Configuration & Handler
-  const LEAD_IMPORT_COLUMNS: ExpectedColumn[] = [
+  // Disqualification Modal State
+  const [disqualifyTargetLead, setDisqualifyTargetLead] = useState<Lead | null>(null);
+  const [selectedDisqualifyReason, setSelectedDisqualifyReason] = useState<string>(DISQUALIFICATION_REASONS[0]);
+  const [disqualifyNotes, setDisqualifyNotes] = useState<string>('');
+
+  // Import Expected Columns & Sample Data
+  const expectedImportColumns: ExpectedColumn[] = [
     { key: 'customerName', label: 'Customer Name', required: true },
     { key: 'mobile', label: 'Mobile Number', required: true },
     { key: 'email', label: 'Email' },
@@ -160,88 +188,84 @@ export const LeadManagementView: React.FC = () => {
     { key: 'notes', label: 'Notes' },
   ];
 
-  const LEAD_SAMPLE_DATA = [
+  const sampleImportData = [
     {
       'Customer Name': 'Kishore Kumar',
       'Mobile Number': '9848033445',
-      'Email': 'kishore.kumar@gmail.com',
-      'City': 'Hyderabad',
-      'Solar Requirement': 'Residential Rooftop',
+      Email: 'kishore.kumar@gmail.com',
+      City: 'Hyderabad',
+      'Solar Requirement': 'Rooftop Residential',
       'Capacity kW': 5,
       'Customer Preference': 'On-Grid (Net Metering)',
       'Lead Source': 'Facebook Meta Ads',
-      'Notes': 'High summer electricity bills ₹4500/mo. Interested in PM Surya Ghar subsidy.',
+      Notes: 'High summer electricity bills ₹4500/mo. Interested in PM Surya Ghar subsidy.',
     },
     {
       'Customer Name': 'Prasad Varma',
       'Mobile Number': '9849055667',
-      'Email': 'prasad.varma@gmail.com',
-      'City': 'Secunderabad',
-      'Solar Requirement': 'Commercial Rooftop',
+      Email: 'prasad.varma@gmail.com',
+      City: 'Secunderabad',
+      'Solar Requirement': 'Commercial & Industrial',
       'Capacity kW': 10,
       'Customer Preference': 'On-Grid (Net Metering)',
       'Lead Source': 'Google Ads',
-      'Notes': 'Commercial shop roof with 800 sqft area.',
+      Notes: 'Commercial shop roof with 800 sqft area.',
     },
     {
       'Customer Name': 'Anjaneyulu Naidu',
       'Mobile Number': '9848123987',
-      'Email': 'naidu.farm@gmail.com',
-      'City': 'Warangal',
+      Email: 'naidu.farm@gmail.com',
+      City: 'Warangal',
       'Solar Requirement': 'Agricultural Solar Pump',
       'Capacity kW': 7.5,
-      'Customer Preference': 'Off-Grid (Solar Water Pump)',
+      'Customer Preference': 'Off-Grid (Battery Backup)',
       'Lead Source': 'Referral',
-      'Notes': 'Paddy farm borewell pump requirement.',
+      Notes: 'Paddy farm borewell pump requirement.',
     },
   ];
 
-  const handleImportLeads = async (rows: Record<string, any>[]) => {
-    const mapped: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'>[] = rows.map((r, i) => {
-      const custName = r['Customer Name'] || r['customerName'] || r['Name'] || `Lead ${i + 1}`;
-      const mob = String(r['Mobile Number'] || r['mobile'] || r['Phone'] || r['Contact'] || '').replace(/\D/g, '').slice(-10);
-      const email = r['Email'] || r['email'] || `${custName.toLowerCase().replace(/[^a-z]/g, '')}@example.com`;
-      const city = r['City'] || r['city'] || 'Hyderabad';
-      const state = r['State'] || r['state'] || 'Telangana';
-      const req = (r['Solar Requirement'] || r['solarRequirement'] || 'Residential Rooftop') as SolarRequirement;
-      const cap = Number(r['Capacity kW'] || r['systemCapacityKW'] || 5);
-      const pref = (r['Customer Preference'] || r['customerPreferences'] || 'On-Grid (Net Metering)') as CustomerPreference;
-      const src = (r['Lead Source'] || r['source'] || 'Other') as LeadSource;
-      const notes = r['Notes'] || r['notes'] || 'Bulk imported via Excel spreadsheet.';
+  const handleBulkImportLeads = async (rows: Record<string, any>[]) => {
+    const formattedLeads = rows.map((row, index) => {
+      const customerName = row['Customer Name'] || row.customerName || row.Name || `Lead ${index + 1}`;
+      const mobile = String(row['Mobile Number'] || row.mobile || row.Phone || row.Contact || '').replace(/\D/g, '').slice(-10);
+      const email = row.Email || row.email || `${customerName.toLowerCase().replace(/[^a-z]/g, '')}@example.com`;
+      const city = row.City || row.city || 'Hyderabad';
+      const state = row.State || row.state || 'Telangana';
+      const solarRequirement = (row['Solar Requirement'] || row.solarRequirement || 'Rooftop Residential') as SolarRequirement;
+      const systemCapacityKW = Number(row['Capacity kW'] || row.systemCapacityKW || 5);
+      const customerPreferences = (row['Customer Preference'] || row.customerPreferences || 'On-Grid (Net Metering)') as CustomerPreference;
+      const source = (row['Lead Source'] || row.source || 'Website') as LeadSource;
+      const notes = row.Notes || row.notes || 'Bulk imported via Excel spreadsheet.';
 
       return {
-        customerName: custName,
-        mobile: mob,
-        email: email,
+        customerName,
+        mobile,
+        email,
         fullAddress: `${city}, ${state}`,
-        city: city,
+        city,
         district: city,
-        state: state,
+        state,
         pincode: '500001',
         location: city,
-        solarRequirement: req,
-        systemCapacityKW: cap,
-        customerPreferences: pref,
-        source: src,
+        solarRequirement,
+        systemCapacityKW,
+        customerPreferences,
+        source,
         assignedExecutiveId: currentUser?.id || 'USR-003',
         assignedExecutiveName: currentUser?.name || 'Rahul Varma',
-        status: 'New',
-        notes: notes,
+        status: 'New' as LeadStatus,
+        notes,
         nextFollowUpDate: new Date().toISOString(),
       };
     });
 
-    const res = importLeadsBatch(mapped);
+    const result = importLeadsBatch(formattedLeads);
     setShowImportModal(false);
-    return { success: res.success, skipped: res.skipped };
+    return { success: result.success, skipped: result.skipped };
   };
 
-  const [disqualifyingLead, setDisqualifyingLead] = useState<Lead | null>(null);
-  const [selectedDisqualifyReason, setSelectedDisqualifyReason] = useState<string>(DISQUALIFIED_REASONS[0]);
-  const [customDisqualifyNote, setCustomDisqualifyNote] = useState<string>('');
-
-  // Form state for Add/Edit
-  const initialFormData: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'> = {
+  // Lead Create/Edit Form State
+  const defaultForm: Omit<Lead, 'id' | 'createdAt' | 'updatedAt'> = {
     customerName: '',
     mobile: '',
     email: '',
@@ -259,49 +283,64 @@ export const LeadManagementView: React.FC = () => {
     assignedExecutiveName: currentUser?.name || 'Rahul Varma',
     assignedTelecallerId: telecallers[0]?.id || '',
     assignedTelecallerName: telecallers[0]?.name || '',
-    nextFollowUpDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+    nextFollowUpDate: new Date(Date.now() + 86400000 * 2).toISOString().slice(0, 16),
     status: 'New',
     notes: '',
     disqualifiedReason: '',
   };
 
-  const [formData, setFormData] = useState(initialFormData);
+  const [formData, setFormData] = useState(defaultForm);
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
-  // Meta Ingestion Simulator State
-  const [metaSimCampaign, setMetaSimCampaign] = useState(META_CAMPAIGNS[0]);
-  const [metaSimProspectName, setMetaSimProspectName] = useState('Dr. Anand Rao');
-  const [metaSimMobile, setMetaSimMobile] = useState('9849123456');
-  const [metaSimCity, setMetaSimCity] = useState('Jubilee Hills, Hyderabad');
-  const [metaSimCapacityKW, setMetaSimCapacityKW] = useState(5);
-  const [metaSimRequirement, setMetaSimRequirement] = useState<SolarRequirement>('Rooftop Residential');
-  const [metaSimTargetTelecaller, setMetaSimTargetTelecaller] = useState(telecallers[0]?.name || 'Kavitha Reddy');
-  const [metaSimCopied, setMetaSimCopied] = useState(false);
-  const [metaSimResponsePayload, setMetaSimResponsePayload] = useState<any | null>(null);
-  const [isSimulatingMeta, setIsSimulatingMeta] = useState(false);
+  // Meta Webhook Simulator State
+  const [metaCampaign, setMetaCampaign] = useState(META_CAMPAIGNS[0]);
+  const [metaName, setMetaName] = useState('Dr. Anand Rao');
+  const [metaPhone, setMetaPhone] = useState('9849123456');
+  const [metaCity, setMetaCity] = useState('Jubilee Hills, Hyderabad');
+  const [metaKw, setMetaKw] = useState<number>(5);
+  const [metaReq, setMetaReq] = useState<SolarRequirement>('Rooftop Residential');
+  const [metaTelecaller, setMetaTelecaller] = useState(telecallers[0]?.name || 'Kavitha Reddy');
+  const [copiedWebhook, setCopiedWebhook] = useState(false);
+  const [webhookResponse, setWebhookResponse] = useState<any>(null);
+  const [isSimulatingWebhook, setIsSimulatingWebhook] = useState(false);
 
-  // Check duplicate mobile as user types
-  const handleMobileChange = (mobileInput: string) => {
-    setFormData(prev => ({ ...prev, mobile: mobileInput }));
-    const check = StorageService.checkDuplicateMobile(mobileInput, editingLead?.id);
-    if (check.isDuplicate) {
-      setDuplicateWarning(`Warning: This mobile matches ${check.name} in existing ${check.matchedIn} records.`);
+  const handleMobileChange = (mobileVal: string) => {
+    setFormData((prev) => ({ ...prev, mobile: mobileVal }));
+    const clean = mobileVal.replace(/\D/g, '').slice(-10);
+    if (clean.length === 10) {
+      const matchedLead = leads.find(
+        (l) => l.id !== editingLead?.id && l.mobile.replace(/\D/g, '').slice(-10) === clean
+      );
+      const matchedCust = customers.find(
+        (c) => c.mobile.replace(/\D/g, '').slice(-10) === clean
+      );
+      if (matchedLead) {
+        setDuplicateWarning(
+          `Warning: This mobile matches ${matchedLead.customerName} in existing Lead records.`
+        );
+      } else if (matchedCust) {
+        setDuplicateWarning(
+          `Warning: This mobile matches ${matchedCust.name} in existing Customer records.`
+        );
+      } else {
+        setDuplicateWarning(null);
+      }
     } else {
       setDuplicateWarning(null);
     }
   };
 
-  const handleOpenAddModal = () => {
+  const handleOpenCreateModal = () => {
     setEditingLead(null);
     setFormData({
-      ...initialFormData,
+      ...defaultForm,
       assignedExecutiveId: currentUser?.id || 'USR-003',
       assignedExecutiveName: currentUser?.name || 'Rahul Varma',
       assignedTelecallerId: telecallers[0]?.id || '',
       assignedTelecallerName: telecallers[0]?.name || '',
     });
     setDuplicateWarning(null);
-    setShowAddModal(true);
+    setShowModal(true);
   };
 
   const handleOpenEditModal = (lead: Lead) => {
@@ -334,10 +373,10 @@ export const LeadManagementView: React.FC = () => {
       metaFormId: lead.metaFormId,
     });
     setDuplicateWarning(null);
-    setShowAddModal(true);
+    setShowModal(true);
   };
 
-  const handleConvertToCustomer = (lead: Lead) => {
+  const handleConvertLead = (lead: Lead) => {
     showConfirmDialog({
       title: 'Convert Lead to Customer Profile',
       message: `Are you sure you want to qualify and convert ${lead.customerName} into an official Customer Account? This will create a permanent customer profile for quotation and installation tracking.`,
@@ -346,7 +385,7 @@ export const LeadManagementView: React.FC = () => {
     });
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleSaveLead = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.customerName || !formData.mobile) return;
 
@@ -371,87 +410,79 @@ export const LeadManagementView: React.FC = () => {
         message: `New solar lead ${formData.customerName} registered successfully.`,
       });
     }
-
-    setShowAddModal(false);
+    setShowModal(false);
     setEditingLead(null);
   };
 
-  // Quick Telecaller Assignment Handler
   const handleConfirmTelecallerAssign = () => {
-    if (!assigningTelecallerLead || !selectedTelecallerForAssign) return;
-    const targetTc = telecallers.find(t => t.name === selectedTelecallerForAssign);
-    const existingNotes = assigningTelecallerLead.notes || '';
-    const newNote = telecallerAssignNote.trim()
-      ? `${existingNotes}\n[Telecaller Assigned: ${selectedTelecallerForAssign}] Note: ${telecallerAssignNote}`.trim()
+    if (!assignTelecallerLead || !selectedTelecallerName) return;
+    const tcObj = telecallers.find((t) => t.name === selectedTelecallerName);
+    const existingNotes = assignTelecallerLead.notes || '';
+    const updatedNotes = telecallerCallNote.trim()
+      ? `${existingNotes}\n[Telecaller Assigned: ${selectedTelecallerName}] Note: ${telecallerCallNote}`.trim()
       : existingNotes;
 
-    updateLead(assigningTelecallerLead.id, {
-      assignedTelecallerId: targetTc?.id,
-      assignedTelecallerName: selectedTelecallerForAssign,
-      notes: newNote,
+    updateLead(assignTelecallerLead.id, {
+      assignedTelecallerId: tcObj?.id,
+      assignedTelecallerName: selectedTelecallerName,
+      notes: updatedNotes,
     });
 
     addToast({
       type: 'success',
       title: 'Telecaller Assigned',
-      message: `Lead ${assigningTelecallerLead.customerName} successfully assigned to Telecaller ${selectedTelecallerForAssign}.`,
+      message: `Lead ${assignTelecallerLead.customerName} successfully assigned to Telecaller ${selectedTelecallerName}.`,
     });
 
-    if (viewingLead && viewingLead.id === assigningTelecallerLead.id) {
-      setViewingLead({
-        ...viewingLead,
-        assignedTelecallerId: targetTc?.id,
-        assignedTelecallerName: selectedTelecallerForAssign,
-        notes: newNote,
+    if (viewLead && viewLead.id === assignTelecallerLead.id) {
+      setViewLead({
+        ...viewLead,
+        assignedTelecallerId: tcObj?.id,
+        assignedTelecallerName: selectedTelecallerName,
+        notes: updatedNotes,
       });
     }
-
-    setAssigningTelecallerLead(null);
-    setSelectedTelecallerForAssign('');
-    setTelecallerAssignNote('');
+    setAssignTelecallerLead(null);
+    setSelectedTelecallerName('');
+    setTelecallerCallNote('');
   };
 
-  // Quick Disqualify Handler
   const handleConfirmDisqualify = () => {
-    if (!disqualifyingLead) return;
-    const finalReason = customDisqualifyNote.trim()
-      ? `${selectedDisqualifyReason} - ${customDisqualifyNote.trim()}`
+    if (!disqualifyTargetLead) return;
+    const fullReason = disqualifyNotes.trim()
+      ? `${selectedDisqualifyReason} - ${disqualifyNotes.trim()}`
       : selectedDisqualifyReason;
 
-    updateLead(disqualifyingLead.id, {
+    updateLead(disqualifyTargetLead.id, {
       status: 'Disqualified',
-      disqualifiedReason: finalReason,
+      disqualifiedReason: fullReason,
     });
 
     addToast({
       type: 'warning',
       title: 'Lead Disqualified',
-      message: `${disqualifyingLead.customerName} marked as Disqualified. Reason: ${finalReason}`,
+      message: `${disqualifyTargetLead.customerName} marked as Disqualified. Reason: ${fullReason}`,
     });
 
-    if (viewingLead && viewingLead.id === disqualifyingLead.id) {
-      setViewingLead({
-        ...viewingLead,
+    if (viewLead && viewLead.id === disqualifyTargetLead.id) {
+      setViewLead({
+        ...viewLead,
         status: 'Disqualified',
-        disqualifiedReason: finalReason,
+        disqualifiedReason: fullReason,
       });
     }
-
-    setDisqualifyingLead(null);
-    setCustomDisqualifyNote('');
+    setDisqualifyTargetLead(null);
+    setDisqualifyNotes('');
   };
 
-  // Meta Webhook Trigger Simulation
   const handleSimulateMetaWebhook = () => {
-    setIsSimulatingMeta(true);
-    setMetaSimResponsePayload(null);
-
+    setIsSimulatingWebhook(true);
+    setWebhookResponse(null);
     setTimeout(() => {
-      const generatedLeadId = `KYP-META-${Date.now().toString().slice(-6)}`;
-      const targetTc = telecallers.find(t => t.name === metaSimTargetTelecaller) || telecallers[0];
-      const todayIso = new Date().toISOString().slice(0, 16);
-
-      const payload = {
+      const kypasLeadId = `KYP-META-${Date.now().toString().slice(-6)}`;
+      const assignedTc = telecallers.find((t) => t.name === metaTelecaller) || telecallers[0];
+      const followUpIso = new Date().toISOString().slice(0, 16);
+      const simulatedPayload = {
         object: 'page',
         entry: [
           {
@@ -462,17 +493,17 @@ export const LeadManagementView: React.FC = () => {
                 field: 'leadgen',
                 value: {
                   ad_id: 'AD_META_' + Math.floor(100000 + Math.random() * 900000),
-                  form_id: metaSimCampaign.formId,
+                  form_id: metaCampaign.formId,
                   leadgen_id: 'LEAD_' + Math.floor(1000000000 + Math.random() * 9000000000),
                   created_time: Math.floor(Date.now() / 1000),
                   page_id: '109283749281729',
-                  campaign_name: metaSimCampaign.name,
+                  campaign_name: metaCampaign.name,
                   user_data: {
-                    full_name: metaSimProspectName,
-                    phone_number: `+91 ${metaSimMobile}`,
-                    city: metaSimCity,
-                    solar_requirement: metaSimRequirement,
-                    estimated_kw: metaSimCapacityKW,
+                    full_name: metaName,
+                    phone_number: `+91 ${metaPhone}`,
+                    city: metaCity,
+                    solar_requirement: metaReq,
+                    estimated_kw: metaKw,
                   },
                 },
               },
@@ -481,173 +512,178 @@ export const LeadManagementView: React.FC = () => {
         ],
       };
 
-      // Create actual Lead in CRM
       createLead({
-        customerName: metaSimProspectName,
-        mobile: metaSimMobile,
-        email: `${metaSimProspectName.toLowerCase().replace(/[^a-z]/g, '')}@gmail.com`,
-        fullAddress: `${metaSimCity}, Telangana`,
+        customerName: metaName,
+        mobile: metaPhone,
+        email: `${metaName.toLowerCase().replace(/[^a-z]/g, '')}@gmail.com`,
+        fullAddress: `${metaCity}, Telangana`,
         state: 'Telangana',
         district: 'Hyderabad',
-        city: metaSimCity.split(',')[0].trim(),
+        city: metaCity.split(',')[0].trim(),
         pincode: '500081',
-        location: metaSimCity,
+        location: metaCity,
         source: 'Facebook Meta Ads',
-        solarRequirement: metaSimRequirement,
-        systemCapacityKW: Number(metaSimCapacityKW),
+        solarRequirement: metaReq,
+        systemCapacityKW: Number(metaKw),
         customerPreferences: 'On-Grid (Net Metering)',
         assignedExecutiveId: currentUser?.id || 'USR-003',
         assignedExecutiveName: currentUser?.name || 'Rahul Varma',
-        assignedTelecallerId: targetTc?.id,
-        assignedTelecallerName: targetTc?.name,
-        nextFollowUpDate: todayIso,
+        assignedTelecallerId: assignedTc?.id,
+        assignedTelecallerName: assignedTc?.name,
+        nextFollowUpDate: followUpIso,
         status: 'New',
-        metaCampaignId: metaSimCampaign.id,
-        metaCampaignName: metaSimCampaign.name,
-        metaFormId: metaSimCampaign.formId,
+        metaCampaignId: metaCampaign.id,
+        metaCampaignName: metaCampaign.name,
+        metaFormId: metaCampaign.formId,
         metaAdId: 'AD_META_FEED_SPONSORED',
         metaLeadgenId: 'LEAD_' + Math.floor(10000000 + Math.random() * 90000000),
         metaReceivedAt: new Date().toISOString(),
-        notes: `Auto-ingested via Facebook Meta Lead Ads Webhook (${metaSimCampaign.name}). Routed to Telecaller ${targetTc?.name} for immediate call qualification.`,
+        notes: `Auto-ingested via Facebook Meta Lead Ads Webhook (${metaCampaign.name}). Routed to Telecaller ${assignedTc?.name} for immediate call qualification.`,
       });
 
-      setMetaSimResponsePayload({
+      setWebhookResponse({
         status: 200,
         statusText: 'OK',
         webhookEvent: 'leadgen',
-        kypasLeadId: generatedLeadId,
-        assignedTelecaller: targetTc?.name,
-        payload,
+        kypasLeadId,
+        assignedTelecaller: assignedTc?.name,
+        payload: simulatedPayload,
       });
-
-      setIsSimulatingMeta(false);
-
+      setIsSimulatingWebhook(false);
       addToast({
         type: 'success',
         title: 'Meta Lead Ingested!',
-        message: `Facebook Lead for ${metaSimProspectName} (${metaSimCapacityKW} kW) successfully routed to Telecaller ${targetTc?.name}.`,
+        message: `Facebook Lead for ${metaName} (${metaKw} kW) successfully routed to Telecaller ${assignedTc?.name}.`,
       });
-
-      // Clear search to show the new lead
       setSearchQuery('');
       setStatusFilter('all');
       setSourceFilter('all');
-      setQuickFilter('all');
+      setQuickChip('all');
     }, 600);
   };
 
   const handleCopyWebhookUrl = () => {
     navigator.clipboard.writeText('https://crm.kypassolar.com/api/webhooks/meta-lead-gen');
-    setMetaSimCopied(true);
-    setTimeout(() => setMetaSimCopied(false), 2000);
+    setCopiedWebhook(true);
+    setTimeout(() => setCopiedWebhook(false), 2000);
   };
 
   // Filtered Leads
   const filteredLeads = useMemo(() => {
-    return leads.filter(l => {
-      // Role enforcement: Sales executive sees only assigned leads (unless sales manager or admin)
-      if (currentUser?.role === 'Sales Executive' && l.assignedExecutiveName !== currentUser.name) {
+    return leads.filter((lead) => {
+      if (currentUser?.role === 'Sales Executive' && lead.assignedExecutiveName !== currentUser.name) {
         return false;
       }
-      // Telecaller enforcement: Telecallers see leads assigned to them or unassigned
-      if (currentUser?.role === 'Telecaller' && l.assignedTelecallerName && l.assignedTelecallerName !== currentUser.name) {
+      if (
+        currentUser?.role === 'Telecaller' &&
+        lead.assignedTelecallerName &&
+        lead.assignedTelecallerName !== currentUser.name
+      ) {
         return false;
       }
 
       if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const matches =
-          l.customerName.toLowerCase().includes(query) ||
-          l.mobile.includes(query) ||
-          l.id.toLowerCase().includes(query) ||
-          l.city.toLowerCase().includes(query) ||
-          (l.assignedTelecallerName && l.assignedTelecallerName.toLowerCase().includes(query)) ||
-          (l.source && l.source.toLowerCase().includes(query));
-        if (!matches) return false;
+        const q = searchQuery.toLowerCase();
+        const match =
+          lead.customerName.toLowerCase().includes(q) ||
+          lead.mobile.includes(q) ||
+          lead.id.toLowerCase().includes(q) ||
+          lead.city.toLowerCase().includes(q) ||
+          (lead.assignedTelecallerName && lead.assignedTelecallerName.toLowerCase().includes(q)) ||
+          (lead.source && lead.source.toLowerCase().includes(q));
+        if (!match) return false;
       }
 
-      // Quick filter buttons
-      if (quickFilter === 'new' && l.status !== 'New') return false;
-      if (quickFilter === 'followup' && !['Follow-up', 'Contacted'].includes(l.status)) return false;
-      if (quickFilter === 'converted' && l.status !== 'Converted') return false;
-      if (quickFilter === 'disqualified' && l.status !== 'Disqualified') return false;
-      if (quickFilter === 'meta' && l.source !== 'Facebook Meta Ads') return false;
-      if (quickFilter === 'unassigned_tc' && l.assignedTelecallerName) return false;
+      if (quickChip === 'new' && lead.status !== 'New') return false;
+      if (quickChip === 'followup' && !['Follow-up', 'Contacted'].includes(lead.status)) return false;
+      if (quickChip === 'converted' && lead.status !== 'Converted') return false;
+      if (quickChip === 'disqualified' && lead.status !== 'Disqualified') return false;
+      if (quickChip === 'meta' && lead.source !== 'Facebook Meta Ads') return false;
+      if (quickChip === 'unassigned_tc' && lead.assignedTelecallerName) return false;
 
-      // Dropdown filters
-      if (statusFilter !== 'all' && l.status !== statusFilter) return false;
-      if (sourceFilter !== 'all' && l.source !== sourceFilter) return false;
-      if (requirementFilter !== 'all' && l.solarRequirement !== requirementFilter) return false;
-      if (executiveFilter !== 'all' && l.assignedExecutiveName !== executiveFilter) return false;
+      if (statusFilter !== 'all' && lead.status !== statusFilter) return false;
+      if (sourceFilter !== 'all' && lead.source !== sourceFilter) return false;
+      if (requirementFilter !== 'all' && lead.solarRequirement !== requirementFilter) return false;
+      if (execFilter !== 'all' && lead.assignedExecutiveName !== execFilter) return false;
 
-      // Telecaller filter
       if (telecallerFilter !== 'all') {
         if (telecallerFilter === 'unassigned') {
-          if (l.assignedTelecallerName) return false;
-        } else if (l.assignedTelecallerName !== telecallerFilter) {
+          if (lead.assignedTelecallerName) return false;
+        } else if (lead.assignedTelecallerName !== telecallerFilter) {
           return false;
         }
       }
 
       return true;
     });
-  }, [leads, searchQuery, statusFilter, sourceFilter, requirementFilter, executiveFilter, telecallerFilter, quickFilter, currentUser]);
+  }, [
+    leads,
+    searchQuery,
+    statusFilter,
+    sourceFilter,
+    requirementFilter,
+    execFilter,
+    telecallerFilter,
+    quickChip,
+    currentUser,
+  ]);
 
-  const executives = Array.from(new Set(leads.map(l => l.assignedExecutiveName).filter(Boolean)));
-  const distinctSources = Array.from(new Set([...EXPANDED_SOURCES, ...leads.map(l => l.source).filter(Boolean)]));
+  const allSourcesList = Array.from(new Set([...LEAD_SOURCES, ...leads.map((l) => l.source).filter(Boolean)]));
+  const totalCount = leads.length;
+  const newCount = leads.filter((l) => l.status === 'New').length;
+  const disqualifiedCount = leads.filter((l) => l.status === 'Disqualified').length;
+  const metaLeadsCount = leads.filter((l) => l.source === 'Facebook Meta Ads').length;
+  const unassignedTelecallerCount = leads.filter(
+    (l) => !l.assignedTelecallerName && !['Converted', 'Lost', 'Disqualified'].includes(l.status)
+  ).length;
 
-  // Counts for summary chips
-  const totalLeadsCount = leads.length;
-  const newLeadsCount = leads.filter(l => l.status === 'New').length;
-  const disqualifiedCount = leads.filter(l => l.status === 'Disqualified').length;
-  const metaLeadsCount = leads.filter(l => l.source === 'Facebook Meta Ads').length;
-  const unassignedTcCount = leads.filter(l => !l.assignedTelecallerName && !['Converted', 'Lost', 'Disqualified'].includes(l.status)).length;
-
-  // Excel / CSV Export
   const handleExportExcel = () => {
-    const exportData = filteredLeads.map(l => ({
-      'Lead ID': l.id,
-      'Customer Name': l.customerName,
-      'Mobile Number': l.mobile,
-      'Email': l.email,
-      'City / Location': `${l.city}, ${l.state}`,
-      'Solar Requirement': l.solarRequirement,
-      'Capacity (kW)': l.systemCapacityKW,
-      'Customer Preference': l.customerPreferences,
-      'Lead Source': l.source,
-      'Assigned Executive': l.assignedExecutiveName,
-      'Assigned Telecaller': l.assignedTelecallerName || 'Unassigned',
-      'Status': l.status,
-      'Disqualified Reason': l.disqualifiedReason || '',
-      'Next Follow-Up': formatDate(l.nextFollowUpDate, true),
-      'Created Date': formatDate(l.createdAt, true),
-      'Meta Campaign': l.metaCampaignName || '',
-      'Notes': l.notes,
-    }));
-    exportToExcel(exportData, `Kypas_Solar_Leads_${new Date().toISOString().slice(0, 10)}`);
+    exportToExcel(
+      filteredLeads.map((l) => ({
+        'Lead ID': l.id,
+        'Customer Name': l.customerName,
+        'Mobile Number': l.mobile,
+        Email: l.email,
+        'City / Location': `${l.city}, ${l.state}`,
+        'Solar Requirement': l.solarRequirement,
+        'Capacity (kW)': l.systemCapacityKW,
+        'Customer Preference': l.customerPreferences,
+        'Lead Source': l.source,
+        'Assigned Executive': l.assignedExecutiveName,
+        'Assigned Telecaller': l.assignedTelecallerName || 'Unassigned',
+        Status: l.status,
+        'Disqualified Reason': l.disqualifiedReason || '',
+        'Next Follow-Up': formatDate(l.nextFollowUpDate, true),
+        'Created Date': formatDate(l.createdAt, true),
+        'Meta Campaign': l.metaCampaignName || '',
+        Notes: l.notes,
+      })),
+      `Kypas_Solar_Leads_${new Date().toISOString().slice(0, 10)}`
+    );
   };
 
   const handleExportCSV = () => {
-    const exportData = filteredLeads.map(l => ({
-      'Lead ID': l.id,
-      'Customer Name': l.customerName,
-      'Mobile Number': l.mobile,
-      'Email': l.email,
-      'City': l.city,
-      'State': l.state,
-      'Requirement': l.solarRequirement,
-      'Capacity kW': l.systemCapacityKW,
-      'Source': l.source,
-      'Executive': l.assignedExecutiveName,
-      'Telecaller': l.assignedTelecallerName || 'Unassigned',
-      'Status': l.status,
-      'Disqualified Reason': l.disqualifiedReason || '',
-      'Next Follow-Up': l.nextFollowUpDate,
-    }));
-    exportToCSV(exportData, `Kypas_Solar_Leads_${new Date().toISOString().slice(0, 10)}`);
+    exportToCSV(
+      filteredLeads.map((l) => ({
+        'Lead ID': l.id,
+        'Customer Name': l.customerName,
+        'Mobile Number': l.mobile,
+        Email: l.email,
+        City: l.city,
+        State: l.state,
+        Requirement: l.solarRequirement,
+        'Capacity kW': l.systemCapacityKW,
+        Source: l.source,
+        Executive: l.assignedExecutiveName,
+        Telecaller: l.assignedTelecallerName || 'Unassigned',
+        Status: l.status,
+        'Disqualified Reason': l.disqualifiedReason || '',
+        'Next Follow-Up': l.nextFollowUpDate,
+      })),
+      `Kypas_Solar_Leads_${new Date().toISOString().slice(0, 10)}`
+    );
   };
 
-  // Source Badge renderer
   const renderSourceBadge = (source: string) => {
     switch (source) {
       case 'Facebook Meta Ads':
@@ -695,7 +731,7 @@ export const LeadManagementView: React.FC = () => {
       case 'Exhibition / Expo':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-            <Building2 className="w-2.5 h-2.5 text-amber-600" />
+            <Sun className="w-2.5 h-2.5 text-amber-600" />
             Expo
           </span>
         );
@@ -729,15 +765,14 @@ export const LeadManagementView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Facebook Meta Webhook Trigger Button */}
           <button
-            onClick={() => setShowMetaTriggerModal(true)}
+            onClick={() => setShowMetaWebhookModal(true)}
             className="px-3.5 py-2 bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer border border-blue-400/30"
             title="Facebook Meta Lead Ads Webhook & Live Ingestion Hub"
           >
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-300"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-300" />
             </span>
             <Zap className="w-3.5 h-3.5 text-amber-300 fill-current" />
             <span>Meta Lead Trigger</span>
@@ -775,7 +810,7 @@ export const LeadManagementView: React.FC = () => {
 
           {hasPermission('Leads', 'create') && (
             <button
-              onClick={handleOpenAddModal}
+              onClick={handleOpenCreateModal}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <UserPlus className="w-3.5 h-3.5" />
@@ -785,7 +820,7 @@ export const LeadManagementView: React.FC = () => {
         </div>
       </div>
 
-      {/* Sub-Tabs: Lead Directory (Table) vs Lead Calendar */}
+      {/* View Switcher Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
         <button
           onClick={() => setActiveView('directory')}
@@ -795,11 +830,15 @@ export const LeadManagementView: React.FC = () => {
               : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
           }`}
         >
-          <LayoutList className="w-4 h-4" />
+          <List className="w-4 h-4" />
           <span>Lead Directory (Table List)</span>
-          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-            activeView === 'directory' ? 'bg-blue-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-          }`}>
+          <span
+            className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
+              activeView === 'directory'
+                ? 'bg-blue-700 text-white'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+            }`}
+          >
             {leads.length}
           </span>
         </button>
@@ -812,7 +851,7 @@ export const LeadManagementView: React.FC = () => {
               : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
           }`}
         >
-          <CalendarDays className="w-4 h-4" />
+          <CalendarIcon className="w-4 h-4" />
           <span>Lead Calendar (Follow-up Schedule)</span>
           <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-500 text-white">
             Schedule
@@ -820,61 +859,61 @@ export const LeadManagementView: React.FC = () => {
         </button>
       </div>
 
-      {/* View 1: Lead Calendar */}
+      {/* Calendar View */}
       {activeView === 'calendar' && (
         <LeadCalendar
           leads={leads}
-          onSelectLead={setViewingLead}
+          onSelectLead={setViewLead}
           onEditLead={handleOpenEditModal}
-          onConvertToCustomer={handleConvertToCustomer}
+          onConvertToCustomer={handleConvertLead}
         />
       )}
 
-      {/* View 2: Lead Directory Table & Filters */}
+      {/* Directory View */}
       {activeView === 'directory' && (
         <>
-          {/* Quick Filter Status Pills Toolbar */}
+          {/* Quick Filter Chips */}
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
-                setQuickFilter('all');
+                setQuickChip('all');
                 setStatusFilter('all');
                 setSourceFilter('all');
                 setTelecallerFilter('all');
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                quickFilter === 'all' && statusFilter === 'all' && sourceFilter === 'all'
+                quickChip === 'all' && statusFilter === 'all' && sourceFilter === 'all'
                   ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xs'
                   : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 hover:border-slate-300'
               }`}
             >
               <span>All Leads</span>
-              <span className="text-[10px] opacity-75">({totalLeadsCount})</span>
+              <span className="text-[10px] opacity-75">({totalCount})</span>
             </button>
 
             <button
               onClick={() => {
-                setQuickFilter('new');
+                setQuickChip('new');
                 setStatusFilter('New');
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                quickFilter === 'new'
+                quickChip === 'new'
                   ? 'bg-amber-500 text-white shadow-xs'
                   : 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40 hover:bg-amber-50 dark:hover:bg-amber-950/20'
               }`}
             >
               <span className="w-2 h-2 rounded-full bg-amber-500" />
               <span>New Inquiries</span>
-              <span className="text-[10px] font-bold">({newLeadsCount})</span>
+              <span className="text-[10px] font-bold">({newCount})</span>
             </button>
 
             <button
               onClick={() => {
-                setQuickFilter('meta');
+                setQuickChip('meta');
                 setSourceFilter('Facebook Meta Ads');
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                quickFilter === 'meta'
+                quickChip === 'meta'
                   ? 'bg-blue-600 text-white shadow-xs'
                   : 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40 hover:bg-blue-50 dark:hover:bg-blue-950/20'
               }`}
@@ -886,27 +925,27 @@ export const LeadManagementView: React.FC = () => {
 
             <button
               onClick={() => {
-                setQuickFilter('unassigned_tc');
+                setQuickChip('unassigned_tc');
                 setTelecallerFilter('unassigned');
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                quickFilter === 'unassigned_tc'
+                quickChip === 'unassigned_tc'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/40 hover:bg-indigo-50 dark:hover:bg-indigo-950/20'
               }`}
             >
               <Headphones className="w-3 h-3" />
               <span>Unassigned Telecaller</span>
-              <span className="text-[10px] font-bold">({unassignedTcCount})</span>
+              <span className="text-[10px] font-bold">({unassignedTelecallerCount})</span>
             </button>
 
             <button
               onClick={() => {
-                setQuickFilter('disqualified');
+                setQuickChip('disqualified');
                 setStatusFilter('Disqualified');
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                quickFilter === 'disqualified'
+                quickChip === 'disqualified'
                   ? 'bg-purple-600 text-white shadow-xs'
                   : 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-900/40 hover:bg-purple-50 dark:hover:bg-purple-950/20'
               }`}
@@ -917,28 +956,26 @@ export const LeadManagementView: React.FC = () => {
             </button>
           </div>
 
-          {/* Filter and Search Toolbar */}
+          {/* Search & Dropdown Filters Card */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-              {/* Search Box */}
               <div className="relative lg:col-span-2">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Search name, phone, city, telecaller, source..."
                   value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
               </div>
 
-              {/* Status Filter (Includes Disqualified) */}
               <div>
                 <select
                   value={statusFilter}
-                  onChange={e => {
+                  onChange={(e) => {
                     setStatusFilter(e.target.value);
-                    if (e.target.value === 'Disqualified') setQuickFilter('disqualified');
+                    if (e.target.value === 'Disqualified') setQuickChip('disqualified');
                   }}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
@@ -953,16 +990,15 @@ export const LeadManagementView: React.FC = () => {
                 </select>
               </div>
 
-              {/* Telecaller Filter */}
               <div>
                 <select
                   value={telecallerFilter}
-                  onChange={e => setTelecallerFilter(e.target.value)}
+                  onChange={(e) => setTelecallerFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="all">All Telecallers</option>
                   <option value="unassigned">⚠️ Unassigned Telecaller</option>
-                  {telecallers.map(tc => (
+                  {telecallers.map((tc) => (
                     <option key={tc.id} value={tc.name}>
                       🎧 {tc.name}
                     </option>
@@ -970,15 +1006,14 @@ export const LeadManagementView: React.FC = () => {
                 </select>
               </div>
 
-              {/* Source Filter (Expanded with Meta, Google, WhatsApp, etc.) */}
               <div>
                 <select
                   value={sourceFilter}
-                  onChange={e => setSourceFilter(e.target.value)}
+                  onChange={(e) => setSourceFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="all">All Lead Sources</option>
-                  {distinctSources.map(src => (
+                  {allSourcesList.map((src) => (
                     <option key={src} value={src}>
                       {src}
                     </option>
@@ -986,11 +1021,10 @@ export const LeadManagementView: React.FC = () => {
                 </select>
               </div>
 
-              {/* Requirement Filter */}
               <div>
                 <select
                   value={requirementFilter}
-                  onChange={e => setRequirementFilter(e.target.value)}
+                  onChange={(e) => setRequirementFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
                   <option value="all">All Solar Types</option>
@@ -1033,7 +1067,7 @@ export const LeadManagementView: React.FC = () => {
                                 setStatusFilter('all');
                                 setSourceFilter('all');
                                 setTelecallerFilter('all');
-                                setQuickFilter('all');
+                                setQuickChip('all');
                               }}
                               className="text-xs font-bold text-blue-600 hover:underline cursor-pointer"
                             >
@@ -1044,26 +1078,24 @@ export const LeadManagementView: React.FC = () => {
                       </td>
                     </tr>
                   ) : (
-                    filteredLeads.map(lead => {
+                    filteredLeads.map((lead) => {
                       const overdue =
                         lead.nextFollowUpDate &&
                         isOverdue(lead.nextFollowUpDate) &&
                         !['Converted', 'Lost', 'Disqualified'].includes(lead.status);
-
-                      const isDisqualified = lead.status === 'Disqualified';
-                      const isMetaSource = lead.source === 'Facebook Meta Ads';
+                      const isDisq = lead.status === 'Disqualified';
+                      const isMeta = lead.source === 'Facebook Meta Ads';
 
                       return (
                         <tr
                           key={lead.id}
                           className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
-                            isDisqualified ? 'bg-purple-50/20 dark:bg-purple-950/10' : ''
+                            isDisq ? 'bg-purple-50/20 dark:bg-purple-950/10' : ''
                           }`}
                         >
-                          {/* ID & Name */}
                           <td className="py-3 px-4">
                             <div
-                              onClick={() => setViewingLead(lead)}
+                              onClick={() => setViewLead(lead)}
                               className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 hover:text-blue-600 cursor-pointer transition-colors"
                               title="Click to view full lead profile & follow-up agenda"
                             >
@@ -1076,7 +1108,7 @@ export const LeadManagementView: React.FC = () => {
                             </div>
                             <div className="text-[10px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
                               <span>{lead.id}</span>
-                              {isMetaSource && (
+                              {isMeta && (
                                 <span className="text-[9px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-bold">
                                   META AD
                                 </span>
@@ -1084,7 +1116,6 @@ export const LeadManagementView: React.FC = () => {
                             </div>
                           </td>
 
-                          {/* Contact */}
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-1 text-slate-700 dark:text-slate-300 font-medium">
                               <Phone className="w-3 h-3 text-slate-400" />
@@ -1095,32 +1126,29 @@ export const LeadManagementView: React.FC = () => {
                             </div>
                           </td>
 
-                          {/* Requirement */}
                           <td className="py-3 px-4">
                             <div className="font-semibold text-slate-900 dark:text-white">
                               {lead.systemCapacityKW} kW
                             </div>
-                            <div className="text-[10px] text-slate-500">
-                              {lead.solarRequirement}
-                            </div>
+                            <div className="text-[10px] text-slate-500">{lead.solarRequirement}</div>
                             <div className="text-[9px] text-blue-600 dark:text-blue-400">
                               {lead.customerPreferences}
                             </div>
                           </td>
 
-                          {/* Source & Campaign */}
                           <td className="py-3 px-4">
                             <div>{renderSourceBadge(lead.source)}</div>
                             {lead.metaCampaignName && (
-                              <div className="text-[9px] text-slate-500 dark:text-slate-400 truncate max-w-[160px] mt-0.5" title={lead.metaCampaignName}>
+                              <div
+                                className="text-[9px] text-slate-500 dark:text-slate-400 truncate max-w-[160px] mt-0.5"
+                                title={lead.metaCampaignName}
+                              >
                                 {lead.metaCampaignName}
                               </div>
                             )}
                           </td>
 
-                          {/* Telecaller & Field Executive Assignment */}
                           <td className="py-3 px-4">
-                            {/* Telecaller Assignment */}
                             <div className="flex items-center gap-1 text-slate-800 dark:text-slate-200">
                               <Headphones className="w-3 h-3 text-indigo-500 shrink-0" />
                               {lead.assignedTelecallerName ? (
@@ -1130,8 +1158,8 @@ export const LeadManagementView: React.FC = () => {
                               ) : (
                                 <button
                                   onClick={() => {
-                                    setAssigningTelecallerLead(lead);
-                                    setSelectedTelecallerForAssign(telecallers[0]?.name || '');
+                                    setAssignTelecallerLead(lead);
+                                    setSelectedTelecallerName(telecallers[0]?.name || '');
                                   }}
                                   className="text-[10px] text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer flex items-center gap-0.5"
                                 >
@@ -1139,17 +1167,14 @@ export const LeadManagementView: React.FC = () => {
                                 </button>
                               )}
                             </div>
-
-                            {/* Executive Assignment */}
                             <div className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
                               <User className="w-2.5 h-2.5" />
                               <span>Exec: {lead.assignedExecutiveName}</span>
                             </div>
                           </td>
 
-                          {/* Follow-up */}
                           <td className="py-3 px-4">
-                            {isDisqualified ? (
+                            {isDisq ? (
                               <span className="text-[10px] text-purple-600 dark:text-purple-400 font-medium">
                                 Closed (Disqualified)
                               </span>
@@ -1159,12 +1184,18 @@ export const LeadManagementView: React.FC = () => {
                               </span>
                             ) : (
                               <>
-                                <div className={`font-semibold flex items-center gap-1 ${overdue ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}`}>
-                                  {overdue && <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+                                <div
+                                  className={`font-semibold flex items-center gap-1 ${
+                                    overdue
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : 'text-slate-700 dark:text-slate-300'
+                                  }`}
+                                >
+                                  {overdue && <AlertTriangle className="w-3 h-3 shrink-0" />}
                                   <span>{formatDate(lead.nextFollowUpDate, true)}</span>
                                 </div>
                                 {overdue && (
-                                  <span className="text-[10px] text-rose-500 font-bold block">
+                                  <span className="text-[9px] text-rose-500 font-bold">
                                     Overdue follow-up!
                                   </span>
                                 )}
@@ -1172,7 +1203,6 @@ export const LeadManagementView: React.FC = () => {
                             )}
                           </td>
 
-                          {/* Status */}
                           <td className="py-3 px-4">
                             <Badge status={lead.status} />
                             {lead.status === 'Disqualified' && lead.disqualifiedReason && (
@@ -1185,14 +1215,14 @@ export const LeadManagementView: React.FC = () => {
                             )}
                           </td>
 
-                          {/* Actions */}
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1">
-                              {/* Quick Assign Telecaller Button */}
                               <button
                                 onClick={() => {
-                                  setAssigningTelecallerLead(lead);
-                                  setSelectedTelecallerForAssign(lead.assignedTelecallerName || telecallers[0]?.name || '');
+                                  setAssignTelecallerLead(lead);
+                                  setSelectedTelecallerName(
+                                    lead.assignedTelecallerName || telecallers[0]?.name || ''
+                                  );
                                 }}
                                 className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors cursor-pointer"
                                 title="Assign / Reassign Telecaller"
@@ -1200,13 +1230,12 @@ export const LeadManagementView: React.FC = () => {
                                 <Headphones className="w-4 h-4" />
                               </button>
 
-                              {/* Quick Disqualify Button (if not already converted/disqualified) */}
                               {!['Converted', 'Disqualified'].includes(lead.status) && (
                                 <button
                                   onClick={() => {
-                                    setDisqualifyingLead(lead);
-                                    setSelectedDisqualifyReason(DISQUALIFIED_REASONS[0]);
-                                    setCustomDisqualifyNote('');
+                                    setDisqualifyTargetLead(lead);
+                                    setSelectedDisqualifyReason(DISQUALIFICATION_REASONS[0]);
+                                    setDisqualifyNotes('');
                                   }}
                                   className="p-1.5 rounded-lg text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950/40 transition-colors cursor-pointer"
                                   title="Mark as Disqualified (Shadow, Tenant, Outside Area, etc.)"
@@ -1215,10 +1244,9 @@ export const LeadManagementView: React.FC = () => {
                                 </button>
                               )}
 
-                              {/* Quick Convert Button */}
                               {lead.status !== 'Converted' && lead.status !== 'Disqualified' && (
                                 <button
-                                  onClick={() => handleConvertToCustomer(lead)}
+                                  onClick={() => handleConvertLead(lead)}
                                   className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
                                   title="Convert to Customer"
                                 >
@@ -1226,16 +1254,14 @@ export const LeadManagementView: React.FC = () => {
                                 </button>
                               )}
 
-                              {/* View Details */}
                               <button
-                                onClick={() => setViewingLead(lead)}
+                                onClick={() => setViewLead(lead)}
                                 className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                                 title="View Lead Profile & Follow-up Agenda"
                               >
                                 <Eye className="w-4 h-4" />
                               </button>
 
-                              {/* Edit */}
                               {hasPermission('Leads', 'edit') && (
                                 <button
                                   onClick={() => handleOpenEditModal(lead)}
@@ -1246,7 +1272,6 @@ export const LeadManagementView: React.FC = () => {
                                 </button>
                               )}
 
-                              {/* Delete */}
                               {hasPermission('Leads', 'delete') && (
                                 <button
                                   onClick={() => {
@@ -1277,23 +1302,20 @@ export const LeadManagementView: React.FC = () => {
         </>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 1: Facebook Meta Lead Ads Webhook & Live Ingestion Hub */}
-      {/* ============================================================== */}
-      {showMetaTriggerModal && (
+      {/* MODAL 1: FACEBOOK META LEAD ADS WEBHOOK HUB */}
+      {showMetaWebhookModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[92vh] overflow-y-auto custom-scrollbar animate-in zoom-in-95">
             <button
               onClick={() => {
-                setShowMetaTriggerModal(false);
-                setMetaSimResponsePayload(null);
+                setShowMetaWebhookModal(false);
+                setWebhookResponse(null);
               }}
               className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
 
-            {/* Header */}
             <div className="flex items-center gap-3 mb-4">
               <div className="w-11 h-11 rounded-2xl bg-blue-600 text-white flex items-center justify-center shadow-md">
                 <Zap className="w-6 h-6 fill-current text-amber-300" />
@@ -1313,7 +1335,6 @@ export const LeadManagementView: React.FC = () => {
               </div>
             </div>
 
-            {/* Webhook Endpoint Info Box */}
             <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/80 mb-5 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
@@ -1333,16 +1354,24 @@ export const LeadManagementView: React.FC = () => {
                   onClick={handleCopyWebhookUrl}
                   className="px-3 py-1.5 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1 cursor-pointer shrink-0"
                 >
-                  {metaSimCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{metaSimCopied ? 'Copied' : 'Copy'}</span>
+                  {copiedWebhook ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  <span>{copiedWebhook ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
               <p className="text-[10px] text-slate-400">
-                Verify Token: <code className="font-mono text-slate-600 dark:text-slate-300">kypas_meta_solar_verify_2026</code> • Handled Event: <code className="font-mono text-slate-600 dark:text-slate-300">leadgen</code>
+                Verify Token:{' '}
+                <code className="font-mono text-slate-600 dark:text-slate-300">
+                  kypas_meta_solar_verify_2026
+                </code>{' '}
+                • Handled Event:{' '}
+                <code className="font-mono text-slate-600 dark:text-slate-300">leadgen</code>
               </p>
             </div>
 
-            {/* Quick 1-Click Preset Buttons */}
             <div className="mb-4">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
                 Quick Test Lead Presets (Click to Populate):
@@ -1351,60 +1380,65 @@ export const LeadManagementView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setMetaSimProspectName('Dr. Anand Rao');
-                    setMetaSimMobile('9849123456');
-                    setMetaSimCity('Jubilee Hills, Hyderabad');
-                    setMetaSimCapacityKW(5);
-                    setMetaSimRequirement('Rooftop Residential');
-                    setMetaSimCampaign(META_CAMPAIGNS[0]);
+                    setMetaName('Dr. Anand Rao');
+                    setMetaPhone('9849123456');
+                    setMetaCity('Jubilee Hills, Hyderabad');
+                    setMetaKw(5);
+                    setMetaReq('Rooftop Residential');
+                    setMetaCampaign(META_CAMPAIGNS[0]);
                   }}
                   className="p-2 text-left bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer"
                 >
                   <p className="text-xs font-bold text-slate-900 dark:text-white">Dr. Anand Rao</p>
-                  <p className="text-[10px] text-slate-500">5 kW Residential • Jubilee Hills (Subsidy)</p>
+                  <p className="text-[10px] text-slate-500">
+                    5 kW Residential • Jubilee Hills (Subsidy)
+                  </p>
                 </button>
-
                 <button
                   type="button"
                   onClick={() => {
-                    setMetaSimProspectName('Smt. Madhavi Latha');
-                    setMetaSimMobile('9849234567');
-                    setMetaSimCity('Hanamkonda, Warangal');
-                    setMetaSimCapacityKW(3);
-                    setMetaSimRequirement('Rooftop Residential');
-                    setMetaSimCampaign(META_CAMPAIGNS[0]);
+                    setMetaName('Smt. Madhavi Latha');
+                    setMetaPhone('9849234567');
+                    setMetaCity('Hanamkonda, Warangal');
+                    setMetaKw(3);
+                    setMetaReq('Rooftop Residential');
+                    setMetaCampaign(META_CAMPAIGNS[0]);
                   }}
                   className="p-2 text-left bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer"
                 >
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">Smt. Madhavi Latha</p>
-                  <p className="text-[10px] text-slate-500">3 kW Rooftop • Warangal (PM Surya Ghar)</p>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white">
+                    Smt. Madhavi Latha
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    3 kW Rooftop • Warangal (PM Surya Ghar)
+                  </p>
                 </button>
-
                 <button
                   type="button"
                   onClick={() => {
-                    setMetaSimProspectName('Sri Sai Packaging Industries');
-                    setMetaSimMobile('9849345678');
-                    setMetaSimCity('Patancheru, Sangareddy');
-                    setMetaSimCapacityKW(30);
-                    setMetaSimRequirement('Commercial & Industrial');
-                    setMetaSimCampaign(META_CAMPAIGNS[2]);
+                    setMetaName('Sri Sai Packaging Industries');
+                    setMetaPhone('9849345678');
+                    setMetaCity('Patancheru, Sangareddy');
+                    setMetaKw(30);
+                    setMetaReq('Commercial & Industrial');
+                    setMetaCampaign(META_CAMPAIGNS[2]);
                   }}
                   className="p-2 text-left bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer"
                 >
-                  <p className="text-xs font-bold text-slate-900 dark:text-white">Sri Sai Packaging</p>
+                  <p className="text-xs font-bold text-slate-900 dark:text-white">
+                    Sri Sai Packaging
+                  </p>
                   <p className="text-[10px] text-slate-500">30 kW Commercial • Patancheru</p>
                 </button>
-
                 <button
                   type="button"
                   onClick={() => {
-                    setMetaSimProspectName('Rajeshwar Goud');
-                    setMetaSimMobile('9849456789');
-                    setMetaSimCity('Armoor, Nizamabad');
-                    setMetaSimCapacityKW(7.5);
-                    setMetaSimRequirement('Agricultural Solar Pump');
-                    setMetaSimCampaign(META_CAMPAIGNS[3]);
+                    setMetaName('Rajeshwar Goud');
+                    setMetaPhone('9849456789');
+                    setMetaCity('Armoor, Nizamabad');
+                    setMetaKw(7.5);
+                    setMetaReq('Agricultural Solar Pump');
+                    setMetaCampaign(META_CAMPAIGNS[3]);
                   }}
                   className="p-2 text-left bg-slate-50 dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-xl transition-all cursor-pointer"
                 >
@@ -1414,7 +1448,6 @@ export const LeadManagementView: React.FC = () => {
               </div>
             </div>
 
-            {/* Lead Simulation Form */}
             <div className="space-y-3 border-t border-slate-200 dark:border-slate-800 pt-3">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -1422,14 +1455,14 @@ export const LeadManagementView: React.FC = () => {
                     Meta Ad Campaign Source *
                   </label>
                   <select
-                    value={metaSimCampaign.id}
-                    onChange={e => {
-                      const found = META_CAMPAIGNS.find(c => c.id === e.target.value);
-                      if (found) setMetaSimCampaign(found);
+                    value={metaCampaign.id}
+                    onChange={(e) => {
+                      const found = META_CAMPAIGNS.find((c) => c.id === e.target.value);
+                      if (found) setMetaCampaign(found);
                     }}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200"
                   >
-                    {META_CAMPAIGNS.map(c => (
+                    {META_CAMPAIGNS.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
                       </option>
@@ -1443,11 +1476,11 @@ export const LeadManagementView: React.FC = () => {
                     <span className="text-[10px] text-indigo-500 font-bold">Desk Assignment</span>
                   </label>
                   <select
-                    value={metaSimTargetTelecaller}
-                    onChange={e => setMetaSimTargetTelecaller(e.target.value)}
+                    value={metaTelecaller}
+                    onChange={(e) => setMetaTelecaller(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 font-semibold"
                   >
-                    {telecallers.map(tc => (
+                    {telecallers.map((tc) => (
                       <option key={tc.id} value={tc.name}>
                         🎧 {tc.name} ({tc.phone})
                       </option>
@@ -1463,32 +1496,30 @@ export const LeadManagementView: React.FC = () => {
                   </label>
                   <input
                     type="text"
-                    value={metaSimProspectName}
-                    onChange={e => setMetaSimProspectName(e.target.value)}
+                    value={metaName}
+                    onChange={(e) => setMetaName(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Mobile Number (10 digits) *
                   </label>
                   <input
                     type="tel"
-                    value={metaSimMobile}
-                    onChange={e => setMetaSimMobile(e.target.value)}
+                    value={metaPhone}
+                    onChange={(e) => setMetaPhone(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 font-mono"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     City / Town *
                   </label>
                   <input
                     type="text"
-                    value={metaSimCity}
-                    onChange={e => setMetaSimCity(e.target.value)}
+                    value={metaCity}
+                    onChange={(e) => setMetaCity(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200"
                   />
                 </div>
@@ -1500,8 +1531,8 @@ export const LeadManagementView: React.FC = () => {
                     System Requirement
                   </label>
                   <select
-                    value={metaSimRequirement}
-                    onChange={e => setMetaSimRequirement(e.target.value as SolarRequirement)}
+                    value={metaReq}
+                    onChange={(e) => setMetaReq(e.target.value as SolarRequirement)}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200"
                   >
                     <option value="Rooftop Residential">Rooftop Residential</option>
@@ -1510,7 +1541,6 @@ export const LeadManagementView: React.FC = () => {
                     <option value="Ground Mount">Ground Mount</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Capacity (kW)
@@ -1519,47 +1549,44 @@ export const LeadManagementView: React.FC = () => {
                     type="number"
                     step="0.5"
                     min="1"
-                    value={metaSimCapacityKW}
-                    onChange={e => setMetaSimCapacityKW(Number(e.target.value))}
+                    value={metaKw}
+                    onChange={(e) => setMetaKw(Number(e.target.value))}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 font-bold"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Simulated Response JSON Output */}
-            {metaSimResponsePayload && (
+            {webhookResponse && (
               <div className="mt-4 p-3 bg-slate-950 text-emerald-400 rounded-2xl font-mono text-[11px] space-y-1.5 animate-in fade-in border border-slate-800">
                 <div className="flex items-center justify-between text-slate-400 border-b border-slate-800 pb-1 text-[10px]">
                   <span>HTTP Response: 200 OK (Webhook Processed)</span>
                   <span className="text-emerald-400 font-bold">Live CRM Lead Created</span>
                 </div>
                 <pre className="overflow-x-auto custom-scrollbar max-h-40 py-1">
-                  {JSON.stringify(metaSimResponsePayload, null, 2)}
+                  {JSON.stringify(webhookResponse, null, 2)}
                 </pre>
               </div>
             )}
 
-            {/* Trigger Button Footer */}
             <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
               <button
                 type="button"
                 onClick={() => {
-                  setShowMetaTriggerModal(false);
-                  setMetaSimResponsePayload(null);
+                  setShowMetaWebhookModal(false);
+                  setWebhookResponse(null);
                 }}
                 className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
               >
                 Close
               </button>
-
               <button
                 type="button"
                 onClick={handleSimulateMetaWebhook}
-                disabled={isSimulatingMeta}
+                disabled={isSimulatingWebhook}
                 className="px-5 py-2.5 text-xs font-black text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600 hover:from-blue-500 hover:to-sky-500 rounded-xl shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
-                {isSimulatingMeta ? (
+                {isSimulatingWebhook ? (
                   <>
                     <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     <span>Processing Webhook...</span>
@@ -1576,14 +1603,12 @@ export const LeadManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 2: Quick Assign / Reassign Telecaller */}
-      {/* ============================================================== */}
-      {assigningTelecallerLead && (
+      {/* MODAL 2: ASSIGN TELECALLER */}
+      {assignTelecallerLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95">
             <button
-              onClick={() => setAssigningTelecallerLead(null)}
+              onClick={() => setAssignTelecallerLead(null)}
               className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -1598,7 +1623,10 @@ export const LeadManagementView: React.FC = () => {
                   Assign Lead to Telecaller
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Target prospect: <strong className="text-slate-800 dark:text-slate-200">{assigningTelecallerLead.customerName}</strong>
+                  Target prospect:{' '}
+                  <strong className="text-slate-800 dark:text-slate-200">
+                    {assignTelecallerLead.customerName}
+                  </strong>
                 </p>
               </div>
             </div>
@@ -1609,12 +1637,12 @@ export const LeadManagementView: React.FC = () => {
                   Select Telecaller *
                 </label>
                 <div className="space-y-2">
-                  {telecallers.map(tc => {
-                    const isSelected = selectedTelecallerForAssign === tc.name;
+                  {telecallers.map((tc) => {
+                    const isSelected = selectedTelecallerName === tc.name;
                     return (
                       <div
                         key={tc.id}
-                        onClick={() => setSelectedTelecallerForAssign(tc.name)}
+                        onClick={() => setSelectedTelecallerName(tc.name)}
                         className={`p-3 rounded-2xl border flex items-center justify-between cursor-pointer transition-all ${
                           isSelected
                             ? 'bg-indigo-50 dark:bg-indigo-950/40 border-indigo-500 dark:border-indigo-600'
@@ -1622,13 +1650,19 @@ export const LeadManagementView: React.FC = () => {
                         }`}
                       >
                         <div className="flex items-center gap-2.5">
-                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-                            isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
-                          }`}>
+                          <div
+                            className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                              isSelected
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200'
+                            }`}
+                          >
                             {tc.name.charAt(0)}
                           </div>
                           <div>
-                            <p className="text-xs font-bold text-slate-900 dark:text-white">{tc.name}</p>
+                            <p className="text-xs font-bold text-slate-900 dark:text-white">
+                              {tc.name}
+                            </p>
                             <p className="text-[10px] text-slate-500 font-mono">{tc.phone}</p>
                           </div>
                         </div>
@@ -1645,8 +1679,8 @@ export const LeadManagementView: React.FC = () => {
                 </label>
                 <textarea
                   rows={2}
-                  value={telecallerAssignNote}
-                  onChange={e => setTelecallerAssignNote(e.target.value)}
+                  value={telecallerCallNote}
+                  onChange={(e) => setTelecallerCallNote(e.target.value)}
                   placeholder="e.g. Call urgently; prospect interested in PM Surya Ghar 78k subsidy."
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                 />
@@ -1655,7 +1689,7 @@ export const LeadManagementView: React.FC = () => {
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setAssigningTelecallerLead(null)}
+                  onClick={() => setAssignTelecallerLead(null)}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                 >
                   Cancel
@@ -1673,14 +1707,12 @@ export const LeadManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 3: Quick Disqualify Lead */}
-      {/* ============================================================== */}
-      {disqualifyingLead && (
+      {/* MODAL 3: DISQUALIFY SOLAR LEAD */}
+      {disqualifyTargetLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95">
             <button
-              onClick={() => setDisqualifyingLead(null)}
+              onClick={() => setDisqualifyTargetLead(null)}
               className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -1695,7 +1727,11 @@ export const LeadManagementView: React.FC = () => {
                   Disqualify Solar Lead
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Mark <strong className="text-slate-800 dark:text-slate-200">{disqualifyingLead.customerName}</strong> as disqualified.
+                  Mark{' '}
+                  <strong className="text-slate-800 dark:text-slate-200">
+                    {disqualifyTargetLead.customerName}
+                  </strong>{' '}
+                  as disqualified.
                 </p>
               </div>
             </div>
@@ -1707,10 +1743,10 @@ export const LeadManagementView: React.FC = () => {
                 </label>
                 <select
                   value={selectedDisqualifyReason}
-                  onChange={e => setSelectedDisqualifyReason(e.target.value)}
+                  onChange={(e) => setSelectedDisqualifyReason(e.target.value)}
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200"
                 >
-                  {DISQUALIFIED_REASONS.map(r => (
+                  {DISQUALIFICATION_REASONS.map((r) => (
                     <option key={r} value={r}>
                       {r}
                     </option>
@@ -1724,8 +1760,8 @@ export const LeadManagementView: React.FC = () => {
                 </label>
                 <textarea
                   rows={3}
-                  value={customDisqualifyNote}
-                  onChange={e => setCustomDisqualifyNote(e.target.value)}
+                  value={disqualifyNotes}
+                  onChange={(e) => setDisqualifyNotes(e.target.value)}
                   placeholder="e.g. Verified rooftop - high-rise building on southern boundary creates 100% shade throughout daytime."
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                 />
@@ -1734,7 +1770,7 @@ export const LeadManagementView: React.FC = () => {
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setDisqualifyingLead(null)}
+                  onClick={() => setDisqualifyTargetLead(null)}
                   className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                 >
                   Cancel
@@ -1752,14 +1788,12 @@ export const LeadManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 4: Add / Edit Lead Modal */}
-      {/* ============================================================== */}
-      {showAddModal && (
+      {/* MODAL 4: CREATE / EDIT SOLAR LEAD */}
+      {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar animate-in zoom-in-95">
             <button
-              onClick={() => setShowAddModal(false)}
+              onClick={() => setShowModal(false)}
               className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -1782,7 +1816,7 @@ export const LeadManagementView: React.FC = () => {
               </div>
             )}
 
-            <form onSubmit={handleFormSubmit} className="space-y-4">
+            <form onSubmit={handleSaveLead} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -1792,12 +1826,11 @@ export const LeadManagementView: React.FC = () => {
                     type="text"
                     required
                     value={formData.customerName}
-                    onChange={e => setFormData({ ...formData, customerName: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
                     placeholder="e.g. Ramesh Chandra / Sri Balaji Mills"
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Mobile Number (10 digits) *
@@ -1806,7 +1839,7 @@ export const LeadManagementView: React.FC = () => {
                     type="tel"
                     required
                     value={formData.mobile}
-                    onChange={e => handleMobileChange(e.target.value)}
+                    onChange={(e) => handleMobileChange(e.target.value)}
                     placeholder="9849012345"
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none font-mono"
                   />
@@ -1821,12 +1854,11 @@ export const LeadManagementView: React.FC = () => {
                   <input
                     type="email"
                     value={formData.email}
-                    onChange={e => setFormData({ ...formData, email: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                     placeholder="client@example.com"
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     City / Town *
@@ -1835,7 +1867,7 @@ export const LeadManagementView: React.FC = () => {
                     type="text"
                     required
                     value={formData.city}
-                    onChange={e => setFormData({ ...formData, city: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
                     placeholder="e.g. Hyderabad / Vijayawada"
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
                   />
@@ -1849,7 +1881,7 @@ export const LeadManagementView: React.FC = () => {
                 <input
                   type="text"
                   value={formData.fullAddress}
-                  onChange={e => setFormData({ ...formData, fullAddress: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, fullAddress: e.target.value })}
                   placeholder="Street, Landmark, Area"
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
@@ -1862,7 +1894,7 @@ export const LeadManagementView: React.FC = () => {
                   </label>
                   <select
                     value={formData.state}
-                    onChange={e => setFormData({ ...formData, state: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, state: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   >
                     <option value="Telangana">Telangana</option>
@@ -1872,7 +1904,6 @@ export const LeadManagementView: React.FC = () => {
                     <option value="Tamil Nadu">Tamil Nadu</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     District
@@ -1880,33 +1911,33 @@ export const LeadManagementView: React.FC = () => {
                   <input
                     type="text"
                     value={formData.district}
-                    onChange={e => setFormData({ ...formData, district: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, district: e.target.value })}
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   />
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    PIN Code
+                    Pincode
                   </label>
                   <input
                     type="text"
                     value={formData.pincode}
-                    onChange={e => setFormData({ ...formData, pincode: e.target.value })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    onChange={(e) => setFormData({ ...formData, pincode: e.target.value })}
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono"
                   />
                 </div>
               </div>
 
-              {/* Solar Requirements */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Solar Requirement *
                   </label>
                   <select
                     value={formData.solarRequirement}
-                    onChange={e => setFormData({ ...formData, solarRequirement: e.target.value as SolarRequirement })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, solarRequirement: e.target.value as SolarRequirement })
+                    }
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   >
                     <option value="Rooftop Residential">Rooftop Residential</option>
@@ -1924,9 +1955,10 @@ export const LeadManagementView: React.FC = () => {
                     type="number"
                     step="0.5"
                     min="1"
-                    required
                     value={formData.systemCapacityKW}
-                    onChange={e => setFormData({ ...formData, systemCapacityKW: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, systemCapacityKW: Number(e.target.value) })
+                    }
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
                   />
                 </div>
@@ -1937,7 +1969,12 @@ export const LeadManagementView: React.FC = () => {
                   </label>
                   <select
                     value={formData.customerPreferences}
-                    onChange={e => setFormData({ ...formData, customerPreferences: e.target.value as CustomerPreference })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerPreferences: e.target.value as CustomerPreference,
+                      })
+                    }
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   >
                     <option value="On-Grid (Net Metering)">On-Grid (Net Metering)</option>
@@ -1948,18 +1985,19 @@ export const LeadManagementView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Source, Telecaller & Executive Assignment */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     Lead Source *
                   </label>
                   <select
                     value={formData.source}
-                    onChange={e => setFormData({ ...formData, source: e.target.value as LeadSource })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, source: e.target.value as LeadSource })
+                    }
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   >
-                    {distinctSources.map(s => (
+                    {LEAD_SOURCES.map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
@@ -1968,25 +2006,25 @@ export const LeadManagementView: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1 flex items-center gap-1">
-                    <Headphones className="w-3.5 h-3.5" /> Assigned Telecaller
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Assigned Telecaller
                   </label>
                   <select
                     value={formData.assignedTelecallerName || ''}
-                    onChange={e => {
-                      const selected = telecallers.find(t => t.name === e.target.value);
+                    onChange={(e) => {
+                      const tc = telecallers.find((t) => t.name === e.target.value);
                       setFormData({
                         ...formData,
-                        assignedTelecallerId: selected?.id || '',
-                        assignedTelecallerName: e.target.value || '',
+                        assignedTelecallerId: tc?.id || '',
+                        assignedTelecallerName: e.target.value,
                       });
                     }}
-                    className="w-full px-3 py-2 text-xs bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-slate-900 dark:text-white"
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   >
-                    <option value="">-- Unassigned Telecaller --</option>
-                    {telecallers.map(tc => (
+                    <option value="">-- Unassigned --</option>
+                    {telecallers.map((tc) => (
                       <option key={tc.id} value={tc.name}>
-                        {tc.name}
+                        🎧 {tc.name}
                       </option>
                     ))}
                   </select>
@@ -1994,27 +2032,30 @@ export const LeadManagementView: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Assigned Field Executive
+                    Assigned Executive
                   </label>
                   <input
                     type="text"
                     value={formData.assignedExecutiveName}
-                    onChange={e => setFormData({ ...formData, assignedExecutiveName: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, assignedExecutiveName: e.target.value })
+                    }
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   />
                 </div>
               </div>
 
-              {/* Status and Follow-up */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Lead Status *
+                    Lead Status
                   </label>
                   <select
                     value={formData.status}
-                    onChange={e => setFormData({ ...formData, status: e.target.value as LeadStatus })}
-                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                    onChange={(e) =>
+                      setFormData({ ...formData, status: e.target.value as LeadStatus })
+                    }
+                    className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   >
                     <option value="New">New</option>
                     <option value="Contacted">Contacted</option>
@@ -2033,24 +2074,27 @@ export const LeadManagementView: React.FC = () => {
                   <input
                     type="datetime-local"
                     value={formData.nextFollowUpDate}
-                    onChange={e => setFormData({ ...formData, nextFollowUpDate: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, nextFollowUpDate: e.target.value })
+                    }
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
                   />
                 </div>
               </div>
 
-              {/* If Disqualified, show reason selector */}
               {formData.status === 'Disqualified' && (
                 <div className="p-3.5 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 rounded-2xl space-y-2 animate-in fade-in">
                   <label className="block text-xs font-bold text-purple-800 dark:text-purple-200 flex items-center gap-1.5">
                     <Ban className="w-3.5 h-3.5" /> Disqualification Reason *
                   </label>
                   <select
-                    value={formData.disqualifiedReason || DISQUALIFIED_REASONS[0]}
-                    onChange={e => setFormData({ ...formData, disqualifiedReason: e.target.value })}
+                    value={formData.disqualifiedReason || DISQUALIFICATION_REASONS[0]}
+                    onChange={(e) =>
+                      setFormData({ ...formData, disqualifiedReason: e.target.value })
+                    }
                     className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-900 border border-purple-300 dark:border-purple-700 rounded-xl text-slate-800 dark:text-slate-200"
                   >
-                    {DISQUALIFIED_REASONS.map(r => (
+                    {DISQUALIFICATION_REASONS.map((r) => (
                       <option key={r} value={r}>
                         {r}
                       </option>
@@ -2059,7 +2103,6 @@ export const LeadManagementView: React.FC = () => {
                 </div>
               )}
 
-              {/* If Lost, show lost reason */}
               {formData.status === 'Lost' && (
                 <div>
                   <label className="block text-xs font-semibold text-rose-600 mb-1">
@@ -2068,14 +2111,13 @@ export const LeadManagementView: React.FC = () => {
                   <input
                     type="text"
                     value={formData.lostReason || ''}
-                    onChange={e => setFormData({ ...formData, lostReason: e.target.value })}
+                    onChange={(e) => setFormData({ ...formData, lostReason: e.target.value })}
                     placeholder="e.g. Budget constraints, opted for competitor..."
                     className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-rose-300 dark:border-rose-800 rounded-xl"
                   />
                 </div>
               )}
 
-              {/* Discussion notes */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Discussion Notes & Observations
@@ -2083,7 +2125,7 @@ export const LeadManagementView: React.FC = () => {
                 <textarea
                   rows={3}
                   value={formData.notes}
-                  onChange={e => setFormData({ ...formData, notes: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   placeholder="Notes from customer phone call, roof shadow conditions, monthly power bill amount..."
                   className="w-full px-3 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 />
@@ -2092,7 +2134,7 @@ export const LeadManagementView: React.FC = () => {
               <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => setShowModal(false)}
                   className="px-4 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
                 >
                   Cancel
@@ -2109,49 +2151,43 @@ export const LeadManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* MODAL 5: Full Lead Profile Details Modal */}
-      {/* ============================================================== */}
-      {viewingLead && (
+      {/* MODAL 5: VIEW LEAD PROFILE & FOLLOW-UP AGENDA */}
+      {viewLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
             <div className="p-6 bg-slate-50/80 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 flex items-start justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white font-black text-lg flex items-center justify-center shadow-md">
-                  {viewingLead.customerName.charAt(0)}
+                  {viewLead.customerName.charAt(0)}
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-xl font-black text-slate-900 dark:text-white">
-                      {viewingLead.customerName}
+                      {viewLead.customerName}
                     </h2>
-                    <Badge status={viewingLead.status} />
-                    {renderSourceBadge(viewingLead.source)}
-                    {viewingLead.convertedCustomerId && (
+                    <Badge status={viewLead.status} />
+                    {renderSourceBadge(viewLead.source)}
+                    {viewLead.convertedCustomerId && (
                       <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold">
-                        Customer {viewingLead.convertedCustomerId}
+                        Customer {viewLead.convertedCustomerId}
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">
-                    Lead ID: {viewingLead.id} • Registered: {formatDate(viewingLead.createdAt)}
+                    Lead ID: {viewLead.id} • Registered: {formatDate(viewLead.createdAt)}
                   </p>
                 </div>
               </div>
-
               <button
-                onClick={() => setViewingLead(null)}
+                onClick={() => setViewLead(null)}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Body */}
             <div className="p-6 overflow-y-auto space-y-5">
-              {/* Disqualification Banner if Disqualified */}
-              {viewingLead.status === 'Disqualified' && (
+              {viewLead.status === 'Disqualified' && (
                 <div className="p-4 rounded-2xl bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-800 text-purple-900 dark:text-purple-200 flex items-start gap-3">
                   <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center shrink-0">
                     <Ban className="w-5 h-5" />
@@ -2161,7 +2197,7 @@ export const LeadManagementView: React.FC = () => {
                       Lead Disqualified
                     </p>
                     <p className="text-sm font-black mt-0.5">
-                      {viewingLead.disqualifiedReason || 'Unqualified inquiry'}
+                      {viewLead.disqualifiedReason || 'Unqualified inquiry'}
                     </p>
                     <p className="text-[11px] opacity-75 mt-1">
                       This lead was screened out by the telecaller team as unsuitable for KYPAS solar installation.
@@ -2170,13 +2206,16 @@ export const LeadManagementView: React.FC = () => {
                 </div>
               )}
 
-              {/* Scheduled Follow-up Banner if Active */}
-              {viewingLead.status !== 'Disqualified' && viewingLead.status !== 'Converted' && (
-                <div className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
-                  viewingLead.nextFollowUpDate && isOverdue(viewingLead.nextFollowUpDate) && !['Converted', 'Lost', 'Disqualified'].includes(viewingLead.status)
-                    ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
-                    : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200'
-                }`}>
+              {viewLead.status !== 'Disqualified' && viewLead.status !== 'Converted' && (
+                <div
+                  className={`p-4 rounded-2xl border flex items-center justify-between gap-4 ${
+                    viewLead.nextFollowUpDate &&
+                    isOverdue(viewLead.nextFollowUpDate) &&
+                    !['Converted', 'Lost', 'Disqualified'].includes(viewLead.status)
+                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200'
+                      : 'bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900 text-blue-900 dark:text-blue-200'
+                  }`}
+                >
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-white/80 dark:bg-slate-900/80 flex items-center justify-center shrink-0">
                       <Clock className="w-5 h-5 text-blue-600" />
@@ -2186,16 +2225,15 @@ export const LeadManagementView: React.FC = () => {
                         Next Scheduled Follow-up
                       </p>
                       <p className="text-base font-black">
-                        {formatDate(viewingLead.nextFollowUpDate, true)}
+                        {formatDate(viewLead.nextFollowUpDate, true)}
                       </p>
                     </div>
                   </div>
-
                   <button
                     onClick={() => {
-                      const targetLead = viewingLead;
-                      setViewingLead(null);
-                      handleOpenEditModal(targetLead);
+                      const target = viewLead;
+                      setViewLead(null);
+                      handleOpenEditModal(target);
                     }}
                     className="px-3 py-1.5 bg-white dark:bg-slate-900 hover:bg-blue-50 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-bold border border-blue-200 dark:border-blue-800 shadow-xs cursor-pointer"
                   >
@@ -2204,7 +2242,6 @@ export const LeadManagementView: React.FC = () => {
                 </div>
               )}
 
-              {/* Telecaller & Field Staff Assignment Card */}
               <div className="p-4 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0">
@@ -2215,31 +2252,33 @@ export const LeadManagementView: React.FC = () => {
                       Assigned Telecaller Desk
                     </p>
                     <p className="text-sm font-black text-slate-900 dark:text-white">
-                      {viewingLead.assignedTelecallerName || 'No Telecaller Assigned Yet'}
+                      {viewLead.assignedTelecallerName || 'No Telecaller Assigned Yet'}
                     </p>
                     <p className="text-[10px] text-slate-500">
-                      Field Executive: <strong>{viewingLead.assignedExecutiveName}</strong>
+                      Field Executive: <strong>{viewLead.assignedExecutiveName}</strong>
                     </p>
                   </div>
                 </div>
-
                 <button
                   onClick={() => {
-                    setAssigningTelecallerLead(viewingLead);
-                    setSelectedTelecallerForAssign(viewingLead.assignedTelecallerName || telecallers[0]?.name || '');
+                    setAssignTelecallerLead(viewLead);
+                    setSelectedTelecallerName(
+                      viewLead.assignedTelecallerName || telecallers[0]?.name || ''
+                    );
                   }}
                   className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <Headphones className="w-3.5 h-3.5" />
-                  <span>{viewingLead.assignedTelecallerName ? 'Reassign Telecaller' : 'Assign Telecaller'}</span>
+                  <span>
+                    {viewLead.assignedTelecallerName ? 'Reassign Telecaller' : 'Assign Telecaller'}
+                  </span>
                 </button>
               </div>
 
-              {/* Contact & Location Details */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-2">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                    Contact Information
+                    Contact & Assignment
                   </p>
                   <div className="space-y-1.5 text-xs">
                     <div className="flex items-center justify-between">
@@ -2247,31 +2286,29 @@ export const LeadManagementView: React.FC = () => {
                         <Phone className="w-3.5 h-3.5 text-emerald-600" /> Mobile:
                       </span>
                       <a
-                        href={`tel:${viewingLead.mobile}`}
-                        className="font-black text-blue-600 hover:underline"
+                        href={`tel:${viewLead.mobile}`}
+                        className="font-bold text-slate-900 dark:text-white hover:text-blue-600"
                       >
-                        {viewingLead.mobile}
+                        {viewLead.mobile}
                       </a>
                     </div>
-                    {viewingLead.email && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 flex items-center gap-1.5">
-                          <Mail className="w-3.5 h-3.5 text-blue-600" /> Email:
-                        </span>
-                        <a
-                          href={`mailto:${viewingLead.email}`}
-                          className="font-medium text-slate-800 dark:text-slate-200 hover:underline truncate max-w-[180px]"
-                        >
-                          {viewingLead.email}
-                        </a>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 flex items-center gap-1.5">
+                        <Mail className="w-3.5 h-3.5 text-blue-600" /> Email:
+                      </span>
+                      <a
+                        href={`mailto:${viewLead.email}`}
+                        className="font-medium text-slate-800 dark:text-slate-200 hover:underline truncate max-w-[180px]"
+                      >
+                        {viewLead.email}
+                      </a>
+                    </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-500 flex items-center gap-1.5">
                         <User className="w-3.5 h-3.5 text-slate-400" /> Field Executive:
                       </span>
                       <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {viewingLead.assignedExecutiveName}
+                        {viewLead.assignedExecutiveName}
                       </span>
                     </div>
                   </div>
@@ -2284,22 +2321,21 @@ export const LeadManagementView: React.FC = () => {
                   <div className="space-y-1 text-xs">
                     <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5 text-rose-500" />
-                      {viewingLead.city}, {viewingLead.state} - {viewingLead.pincode}
+                      {viewLead.city}, {viewLead.state} - {viewLead.pincode}
                     </p>
-                    {viewingLead.fullAddress && (
-                      <p className="text-slate-500 text-[11px]">
-                        {viewingLead.fullAddress}
-                      </p>
+                    {viewLead.fullAddress && (
+                      <p className="text-slate-500 text-[11px]">{viewLead.fullAddress}</p>
                     )}
                     <div className="pt-1 flex items-center justify-between text-slate-500">
                       <span>Source:</span>
-                      <span className="font-bold text-slate-700 dark:text-slate-300">{viewingLead.source}</span>
+                      <span className="font-bold text-slate-700 dark:text-slate-300">
+                        {viewLead.source}
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Solar Project Requirements */}
               <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-3">
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                   Solar Technical Specs
@@ -2308,72 +2344,82 @@ export const LeadManagementView: React.FC = () => {
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
                     <p className="text-[10px] font-bold text-slate-400 uppercase">Requirement</p>
                     <p className="text-xs font-black text-slate-900 dark:text-white mt-1">
-                      {viewingLead.solarRequirement}
+                      {viewLead.solarRequirement}
                     </p>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">System Capacity</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">
+                      System Capacity
+                    </p>
                     <p className="text-sm font-black text-blue-600 dark:text-blue-400 mt-1">
-                      {viewingLead.systemCapacityKW} kW
+                      {viewLead.systemCapacityKW} kW
                     </p>
                   </div>
                   <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase">Customer Preference</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase">
+                      Customer Preference
+                    </p>
                     <p className="text-xs font-black text-slate-900 dark:text-white mt-1">
-                      {viewingLead.customerPreferences}
+                      {viewLead.customerPreferences}
                     </p>
                   </div>
                 </div>
               </div>
 
-              {/* Meta Lead Campaign Details (if Meta sourced) */}
-              {viewingLead.metaCampaignName && (
+              {viewLead.metaCampaignName && (
                 <div className="p-4 rounded-2xl bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 space-y-1.5">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
                     <Zap className="w-3.5 h-3.5 fill-current" /> Meta Lead Ad Campaign Details
                   </p>
                   <div className="text-xs text-slate-700 dark:text-slate-300 space-y-1">
-                    <p>Campaign: <strong>{viewingLead.metaCampaignName}</strong></p>
-                    {viewingLead.metaFormId && <p className="font-mono text-[10px] text-slate-500">Form ID: {viewingLead.metaFormId}</p>}
-                    {viewingLead.metaReceivedAt && <p className="text-[10px] text-slate-500">Received at: {formatDate(viewingLead.metaReceivedAt, true)}</p>}
+                    <p>
+                      Campaign: <strong>{viewLead.metaCampaignName}</strong>
+                    </p>
+                    {viewLead.metaFormId && (
+                      <p className="font-mono text-[10px] text-slate-500">
+                        Form ID: {viewLead.metaFormId}
+                      </p>
+                    )}
+                    {viewLead.metaReceivedAt && (
+                      <p className="text-[10px] text-slate-500">
+                        Received at: {formatDate(viewLead.metaReceivedAt, true)}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* Discussion Notes */}
-              {viewingLead.notes && (
+              {viewLead.notes && (
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-1.5">
                   <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
                     Discussion Notes & Logged Remarks
                   </p>
                   <p className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-line bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                    {viewingLead.notes}
+                    {viewLead.notes}
                   </p>
                 </div>
               )}
 
-              {viewingLead.status === 'Lost' && viewingLead.lostReason && (
+              {viewLead.status === 'Lost' && viewLead.lostReason && (
                 <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs">
-                  <strong>Reason for Lost Opportunity:</strong> {viewingLead.lostReason}
+                  <strong>Reason for Lost Opportunity:</strong> {viewLead.lostReason}
                 </div>
               )}
             </div>
 
-            {/* Modal Footer Actions */}
             <div className="p-4 bg-slate-50/80 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 flex-wrap">
               <div className="flex items-center gap-2">
                 <a
-                  href={`tel:${viewingLead.mobile}`}
+                  href={`tel:${viewLead.mobile}`}
                   className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                 >
                   <Phone className="w-3.5 h-3.5" /> Call Customer
                 </a>
-
-                {!['Converted', 'Disqualified'].includes(viewingLead.status) && (
+                {!['Converted', 'Disqualified'].includes(viewLead.status) && (
                   <button
                     onClick={() => {
-                      setDisqualifyingLead(viewingLead);
-                      setSelectedDisqualifyReason(DISQUALIFIED_REASONS[0]);
+                      setDisqualifyTargetLead(viewLead);
+                      setSelectedDisqualifyReason(DISQUALIFICATION_REASONS[0]);
                     }}
                     className="px-3 py-2 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
                   >
@@ -2383,32 +2429,30 @@ export const LeadManagementView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-2">
-                {viewingLead.status !== 'Converted' && viewingLead.status !== 'Disqualified' && (
+                {viewLead.status !== 'Converted' && viewLead.status !== 'Disqualified' && (
                   <button
                     onClick={() => {
-                      const target = viewingLead;
-                      setViewingLead(null);
-                      handleConvertToCustomer(target);
+                      const target = viewLead;
+                      setViewLead(null);
+                      handleConvertLead(target);
                     }}
                     className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" /> Convert to Customer
                   </button>
                 )}
-
                 <button
                   onClick={() => {
-                    const target = viewingLead;
-                    setViewingLead(null);
+                    const target = viewLead;
+                    setViewLead(null);
                     handleOpenEditModal(target);
                   }}
                   className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <Edit2 className="w-3.5 h-3.5" /> Edit Lead
                 </button>
-
                 <button
-                  onClick={() => setViewingLead(null)}
+                  onClick={() => setViewLead(null)}
                   className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 rounded-xl text-xs font-semibold cursor-pointer"
                 >
                   Close
@@ -2419,18 +2463,16 @@ export const LeadManagementView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* BULK IMPORT LEADS MODAL                                                   */}
-      {/* ========================================================================= */}
+      {/* MODAL 6: IMPORT LEADS FROM SPREADSHEET */}
       <DataImportModal
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         title="Import Leads from Spreadsheet"
         entityName="Leads"
         sampleFileName="KYPAS_Solar_Leads_Import_Template"
-        sampleData={LEAD_SAMPLE_DATA}
-        expectedColumns={LEAD_IMPORT_COLUMNS}
-        onImport={handleImportLeads}
+        sampleData={sampleImportData}
+        expectedColumns={expectedImportColumns}
+        onImport={handleBulkImportLeads}
       />
     </div>
   );

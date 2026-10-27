@@ -24,12 +24,19 @@
 
 /* Clean A4 Quotation Print Styles */
 @media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   body {
     background: white !important;
     color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  header, aside, .print\\:hidden {
+  header, aside, .print\:hidden, #kypas-all-pages-export {
     display: none !important;
   }
 
@@ -39,8 +46,15 @@
     max-width: 100% !important;
   }
 
+  .kypas-a4-page {
+    page-break-after: always !important;
+    break-after: page !important;
+    box-shadow: none !important;
+    margin: 0 auto !important;
+  }
+
   @page {
-    size: A4;
-    margin: 12mm;
+    size: A4 portrait;
+    margin: 0mm;
   }
 }

@@ -3,134 +3,137 @@ import {
   Landmark,
   Search,
   Plus,
-  FileCheck2,
-  AlertCircle,
   Phone,
   Clock,
   Calendar,
-  FileDown,
   X,
   CheckCircle2,
   AlertTriangle,
-  Info,
   Edit2,
   FileText,
   DollarSign,
-  CreditCard,
   Building2,
   ArrowRight,
   TrendingUp,
   Receipt,
-  Printer,
   CheckCircle,
-  Clock3,
   Wallet,
-  Coins,
   ShieldCheck,
   ChevronRight,
   Eye,
-  UploadCloud,
+  MessageCircle,
+  Calculator,
+  Percent,
+  Layers,
+  ArrowUpRight,
+  CreditCard,
+  Building,
 } from 'lucide-react';
 import { useCRM } from '../../../context/CRMContext';
 import { useAuth } from '../../../context/AuthContext';
-import {
-  LoanApplication,
-  LoanStatus,
-  LoanDocumentItem,
-  PaymentCategory,
-  BankPaymentTransaction,
-  Customer,
-} from '../../../types/crm';
-import { Badge } from '../../common/Badge';
-import { formatINR, formatDate, isOverdue, exportToExcel } from '../../../utils/formatters';
-import { DataImportModal } from '../../common/DataImportModal';
+import { LoanApplication, LoanStatus, Customer, PaymentCategory, BankPaymentTransaction } from '../../../types/crm';
+import { formatINR, formatDate } from '../../../utils/formatters';
 
-type BankModuleSubTab = 'overview' | 'loans' | 'bank' | 'cash';
+const BANK_PARTNERS = [
+  { name: 'State Bank of India (SBI)', scheme: 'Surya Ghar Subsidized Solar Loan', interestRate: 7.0, maxTenure: 120, minDownPaymentPct: 10 },
+  { name: 'Canara Bank', scheme: 'Canara Solar Rooftop Scheme', interestRate: 7.0, maxTenure: 84, minDownPaymentPct: 10 },
+  { name: 'Punjab National Bank (PNB)', scheme: 'PNB Saur Urja Loan', interestRate: 7.0, maxTenure: 120, minDownPaymentPct: 10 },
+  { name: 'Tata Capital', scheme: 'Solar Financing Quick Disburse', interestRate: 9.5, maxTenure: 60, minDownPaymentPct: 15 },
+  { name: 'HDFC Bank', scheme: 'Green Energy Rooftop Loan', interestRate: 8.9, maxTenure: 60, minDownPaymentPct: 15 },
+];
+
+const REQUIRED_DOCUMENTS = [
+  'Aadhaar Card Copy',
+  'PAN Card Copy',
+  'Latest Electricity Bill (TSSPDCL / APCPDCL)',
+  'Property Tax / Municipal Ownership Receipt',
+  'Bank Account Statement (Last 6 Months)',
+  'Kypas Solar Official Quotation',
+  'Bank Sanction Letter Signed Copy',
+];
 
 export const BankLoanTrackingView: React.FC = () => {
-  const { currentUser, hasPermission } = useAuth();
   const {
     loans,
     customers,
     transactions,
     createLoan,
-    importLoansBatch,
     updateLoan,
     toggleLoanDoc,
     createTransaction,
     setCustomerPaymentMode,
+    addToast,
+    showConfirmDialog,
   } = useCRM();
 
-  // Active Sub-Tab
-  const [activeSubTab, setActiveSubTab] = useState<BankModuleSubTab>('overview');
+  const { currentUser } = useAuth();
 
-  // Overview Search & Filters
-  const [overviewSearch, setOverviewSearch] = useState('');
-  const [paymentModeFilter, setPaymentModeFilter] = useState<string>('all');
+  // Main Tabs: overview | loans | bank | cash
+  const [activeTab, setActiveTab] = useState<'overview' | 'loans' | 'bank' | 'cash'>('overview');
 
-  // Loans Tab State
-  const [loanSearchQuery, setLoanSearchQuery] = useState('');
-  const [loanStatusFilter, setLoanStatusFilter] = useState<string>('all');
-  const [loanBankFilter, setLoanBankFilter] = useState<string>('all');
+  // Sub filters
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [bankFilter, setBankFilter] = useState<string>('all');
+  const [bankSearch, setBankSearch] = useState('');
+  const [cashSearch, setCashSearch] = useState('');
+
+  // Modals
   const [showAddLoanModal, setShowAddLoanModal] = useState(false);
-  const [showImportLoansModal, setShowImportLoansModal] = useState(false);
-  const [selectedLoan, setSelectedLoan] = useState<LoanApplication | null>(null);
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [selectedLoanForDoc, setSelectedLoanForDoc] = useState<LoanApplication | null>(null);
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false);
+  const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<Customer | null>(null);
 
-  // Bank Direct Payments State
-  const [bankTxnSearch, setBankTxnSearch] = useState('');
-  const [showAddBankTxnModal, setShowAddBankTxnModal] = useState(false);
+  // Record Payment form state
+  const [paymentAmount, setPaymentAmount] = useState<number>(25000);
+  const [paymentType, setPaymentType] = useState<'Bank' | 'Cash'>('Bank');
+  const [paymentStage, setPaymentStage] = useState<'Advance' | 'Material Dispatch' | 'Commissioning' | 'Full Payment'>('Advance');
+  const [paymentBankName, setPaymentBankName] = useState('State Bank of India');
+  const [paymentTransferMode, setPaymentTransferMode] = useState<'UPI' | 'NEFT' | 'RTGS' | 'IMPS' | 'Cheque'>('UPI');
+  const [paymentReferenceNo, setPaymentReferenceNo] = useState('');
+  const [paymentNotes, setPaymentNotes] = useState('');
 
-  // Cash Tab State
-  const [cashTxnSearch, setCashTxnSearch] = useState('');
-  const [showAddCashTxnModal, setShowAddCashTxnModal] = useState(false);
-  const [selectedReceipt, setSelectedReceipt] = useState<BankPaymentTransaction | null>(null);
+  // EMI Calculator State
+  const [calcSystemCost, setCalcSystemCost] = useState<number>(195000);
+  const [calcCapacityKW, setCalcCapacityKW] = useState<number>(3);
+  const [calcDownPaymentPct, setCalcDownPaymentPct] = useState<number>(10);
+  const [calcInterestRate, setCalcInterestRate] = useState<number>(7.0);
+  const [calcTenureMonths, setCalcTenureMonths] = useState<number>(60);
 
-  // Standard solar financing document checklist
-  const standardDocsList = [
-    'Aadhaar Card Copy',
-    'PAN Card Copy',
-    'Latest Electricity Bill (TSSPDCL / APCPDCL)',
-    'Property Tax / Municipal Ownership Receipt',
-    'Bank Account Statement (Last 6 Months)',
-    'Kypas Solar Official Quotation',
-    'Bank Sanction Letter Signed Copy',
-  ];
-
-  // 1. Calculations for Payment Mode Overview ("Which one they take")
+  // Overview stats calculation
   const overviewStats = useMemo(() => {
     let loanCount = 0;
     let bankCount = 0;
     let cashCount = 0;
     let totalProjectValue = 0;
     let totalCollectedValue = 0;
-
     let loanTotalValue = 0;
     let bankTotalValue = 0;
     let cashTotalValue = 0;
 
-    customers.forEach(cust => {
-      const mode = cust.paymentMode || 'Loan';
-      const cost = cust.totalProjectCost || cust.systemCapacityKW * 65000;
-      const paid = cust.totalPaid || 0;
-
-      totalProjectValue += cost;
+    customers.forEach((c) => {
+      const mode = c.paymentMode || 'Loan';
+      const projectCost = c.totalProjectCost || (c.systemCapacityKW * 65000);
+      const paid = c.totalPaid || 0;
+      totalProjectValue += projectCost;
       totalCollectedValue += paid;
 
       if (mode === 'Loan') {
         loanCount++;
-        loanTotalValue += cost;
+        loanTotalValue += projectCost;
       } else if (mode === 'Bank') {
         bankCount++;
-        bankTotalValue += cost;
+        bankTotalValue += projectCost;
       } else if (mode === 'Cash') {
         cashCount++;
-        cashTotalValue += cost;
+        cashTotalValue += projectCost;
       }
     });
 
-    const totalCusts = customers.length || 1;
-    const loanPct = Math.round((loanCount / totalCusts) * 100);
-    const bankPct = Math.round((bankCount / totalCusts) * 100);
+    const totalCust = customers.length || 1;
+    const loanPct = Math.round((loanCount / totalCust) * 100);
+    const bankPct = Math.round((bankCount / totalCust) * 100);
     const cashPct = 100 - loanPct - bankPct;
 
     return {
@@ -149,843 +152,488 @@ export const BankLoanTrackingView: React.FC = () => {
     };
   }, [customers]);
 
-  // Filtered customers for Overview Register
-  const filteredCustomers = useMemo(() => {
-    return customers.filter(cust => {
-      if (overviewSearch.trim()) {
-        const q = overviewSearch.toLowerCase();
-        const matches =
-          cust.name.toLowerCase().includes(q) ||
-          cust.mobile.includes(q) ||
-          cust.id.toLowerCase().includes(q) ||
-          cust.city.toLowerCase().includes(q);
-        if (!matches) return false;
-      }
-      const mode = cust.paymentMode || 'Loan';
-      if (paymentModeFilter !== 'all' && mode !== paymentModeFilter) return false;
-      return true;
-    });
-  }, [customers, overviewSearch, paymentModeFilter]);
+  // EMI Calculation results
+  const emiCalculation = useMemo(() => {
+    const subsidy = calcCapacityKW >= 3 ? 78000 : calcCapacityKW >= 2 ? 60000 : 30000;
+    const netCost = Math.max(0, calcSystemCost - subsidy);
+    const downPayment = Math.round(netCost * (calcDownPaymentPct / 100));
+    const loanAmount = Math.max(0, netCost - downPayment);
 
-  // 2. Loans Filter
+    const monthlyRate = calcInterestRate / 100 / 12;
+    let emi = 0;
+    if (monthlyRate > 0 && calcTenureMonths > 0) {
+      emi = Math.round(
+        (loanAmount * monthlyRate * Math.pow(1 + monthlyRate, calcTenureMonths)) /
+          (Math.pow(1 + monthlyRate, calcTenureMonths) - 1)
+      );
+    }
+
+    const totalPayable = emi * calcTenureMonths;
+    const totalInterest = Math.max(0, totalPayable - loanAmount);
+    const monthlySolarSavings = Math.round(calcCapacityKW * 120 * 8.5);
+    const netMonthlyCashflow = monthlySolarSavings - emi;
+
+    return {
+      subsidy,
+      netCost,
+      downPayment,
+      loanAmount,
+      emi,
+      totalInterest,
+      totalPayable,
+      monthlySolarSavings,
+      netMonthlyCashflow,
+      isPositive: netMonthlyCashflow >= 0,
+    };
+  }, [calcSystemCost, calcCapacityKW, calcDownPaymentPct, calcInterestRate, calcTenureMonths]);
+
+  // Filtered Loans
   const filteredLoans = useMemo(() => {
-    return loans.filter(l => {
-      if (loanSearchQuery.trim()) {
-        const q = loanSearchQuery.toLowerCase();
-        const match =
-          l.customerName.toLowerCase().includes(q) ||
-          l.applicationRefNo.toLowerCase().includes(q) ||
-          l.bankName.toLowerCase().includes(q) ||
-          l.customerMobile.includes(q);
-        if (!match) return false;
-      }
-      if (loanStatusFilter !== 'all' && l.status !== loanStatusFilter) return false;
-      if (loanBankFilter !== 'all' && !l.bankName.toLowerCase().includes(loanBankFilter.toLowerCase())) return false;
-      return true;
+    return loans.filter((loan) => {
+      const query = searchQuery.toLowerCase();
+      const matchesSearch =
+        loan.customerName.toLowerCase().includes(query) ||
+        loan.applicationRefNo.toLowerCase().includes(query) ||
+        loan.bankName.toLowerCase().includes(query) ||
+        (loan.customerMobile && loan.customerMobile.includes(query));
+      const matchesStatus = statusFilter === 'all' || loan.status === statusFilter;
+      const matchesBank = bankFilter === 'all' || loan.bankName === bankFilter;
+      return matchesSearch && matchesStatus && matchesBank;
     });
-  }, [loans, loanSearchQuery, loanStatusFilter, loanBankFilter]);
+  }, [loans, searchQuery, statusFilter, bankFilter]);
 
-  // 3. Bank Transactions (Direct Bank / NEFT / RTGS)
+  // Bank transactions
   const bankTransactions = useMemo(() => {
-    return transactions.filter(t => t.paymentType === 'Bank');
+    return transactions.filter((t) => t.paymentType === 'Bank');
   }, [transactions]);
 
   const filteredBankTransactions = useMemo(() => {
-    return bankTransactions.filter(t => {
-      if (bankTxnSearch.trim()) {
-        const q = bankTxnSearch.toLowerCase();
-        return (
-          t.customerName.toLowerCase().includes(q) ||
-          t.receiptNumber.toLowerCase().includes(q) ||
-          (t.transactionUtrOrCheque && t.transactionUtrOrCheque.toLowerCase().includes(q)) ||
-          (t.bankName && t.bankName.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
-  }, [bankTransactions, bankTxnSearch]);
+    if (!bankSearch.trim()) return bankTransactions;
+    const q = bankSearch.toLowerCase();
+    return bankTransactions.filter(
+      (t) =>
+        t.customerName.toLowerCase().includes(q) ||
+        t.receiptNumber.toLowerCase().includes(q) ||
+        (t.transactionUtrOrCheque && t.transactionUtrOrCheque.toLowerCase().includes(q)) ||
+        (t.bankName && t.bankName.toLowerCase().includes(q))
+    );
+  }, [bankTransactions, bankSearch]);
 
-  // 4. Cash Transactions
+  // Cash transactions
   const cashTransactions = useMemo(() => {
-    return transactions.filter(t => t.paymentType === 'Cash');
+    return transactions.filter((t) => t.paymentType === 'Cash');
   }, [transactions]);
 
   const filteredCashTransactions = useMemo(() => {
-    return cashTransactions.filter(t => {
-      if (cashTxnSearch.trim()) {
-        const q = cashTxnSearch.toLowerCase();
-        return (
-          t.customerName.toLowerCase().includes(q) ||
-          t.receiptNumber.toLowerCase().includes(q) ||
-          (t.collectedBy && t.collectedBy.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
-  }, [cashTransactions, cashTxnSearch]);
+    if (!cashSearch.trim()) return cashTransactions;
+    const q = cashSearch.toLowerCase();
+    return cashTransactions.filter(
+      (t) =>
+        t.customerName.toLowerCase().includes(q) ||
+        t.receiptNumber.toLowerCase().includes(q) ||
+        (t.collectedBy && t.collectedBy.toLowerCase().includes(q))
+    );
+  }, [cashTransactions, cashSearch]);
 
-  // Modal forms
-  const [loanFormData, setLoanFormData] = useState({
-    customerId: customers[0]?.id || '',
-    bankName: 'State Bank of India (PM Surya Ghar Scheme)',
-    applicationRefNo: `SBI-SG-${Math.floor(1000 + Math.random() * 9000)}`,
-    applicationDate: new Date().toISOString().slice(0, 10),
-    loanAmountRequested: 250000,
-    loanAmountApproved: 0,
-    bankRepName: '',
-    bankRepContact: '',
-    verificationStatus: 'Pending' as LoanApplication['verificationStatus'],
-    followUpDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+  // New Loan Form
+  const [formData, setFormData] = useState({
+    customerId: '',
+    customerName: '',
+    customerPhone: '',
+    bankName: 'State Bank of India (SBI)',
+    loanAmount: 117000,
+    sanctionedAmount: 117000,
+    systemCost: 195000,
+    subsidyAmount: 78000,
+    tenureMonths: 60,
+    interestRate: 7.0,
     status: 'Application Submitted' as LoanStatus,
-    notes: '',
+    discomConsumerNumber: 'TSSPDCL-048291',
+    bankOfficerName: 'Ramesh Sharma',
+    bankOfficerContact: '9848011223',
   });
 
-  const [bankTxnFormData, setBankTxnFormData] = useState({
-    customerId: customers[0]?.id || '',
-    amount: 150000,
-    paymentStage: 'Advance' as BankPaymentTransaction['paymentStage'],
-    date: new Date().toISOString().slice(0, 10),
-    bankName: 'State Bank of India (Company Current A/c)',
-    transferMode: 'NEFT' as NonNullable<BankPaymentTransaction['transferMode']>,
-    transactionUtrOrCheque: `UTR-HDFC-${Math.floor(100000 + Math.random() * 900000)}`,
-    receiptNumber: `BNK-REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-    status: 'Verified' as BankPaymentTransaction['status'],
-    notes: 'Advance transfer for solar module procurement.',
-  });
-
-  const [cashTxnFormData, setCashTxnFormData] = useState({
-    customerId: customers[0]?.id || '',
-    amount: 50000,
-    paymentStage: 'Advance' as BankPaymentTransaction['paymentStage'],
-    date: new Date().toISOString().slice(0, 10),
-    collectedBy: currentUser?.name || 'Rahul Varma (Field Executive)',
-    receiptNumber: `CSH-REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-    transactionUtrOrCheque: `CSH-VOUCHER-${Math.floor(1000 + Math.random() * 9000)}`,
-    status: 'Verified' as BankPaymentTransaction['status'],
-    notes: 'Cash payment received at site office against printed voucher.',
-  });
-
-  // Actions
-  const handleOpenAddLoan = (customerId?: string) => {
-    setLoanFormData({
-      customerId: customerId || customers[0]?.id || '',
-      bankName: 'State Bank of India (PM Surya Ghar Scheme)',
-      applicationRefNo: `SBI-SG-${Math.floor(1000 + Math.random() * 9000)}`,
-      applicationDate: new Date().toISOString().slice(0, 10),
-      loanAmountRequested: 250000,
-      loanAmountApproved: 0,
-      bankRepName: '',
-      bankRepContact: '',
-      verificationStatus: 'Pending',
-      followUpDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      status: 'Application Submitted',
-      notes: '',
-    });
-    setShowAddLoanModal(true);
+  const handleSelectCustomer = (custId: string) => {
+    const c = customers.find((cust) => cust.id === custId);
+    if (!c) return;
+    const totalCost = c.totalProjectCost || c.systemCapacityKW * 65000;
+    const subAmt = c.systemCapacityKW >= 3 ? 78000 : 60000;
+    setFormData((prev) => ({
+      ...prev,
+      customerId: c.id,
+      customerName: c.name,
+      customerPhone: c.mobile,
+      systemCost: totalCost,
+      subsidyAmount: subAmt,
+      loanAmount: Math.max(0, totalCost - subAmt - (c.totalPaid || 0)),
+    }));
   };
 
-  const handleCreateLoanSubmit = (e: React.FormEvent) => {
+  const handleCreateLoan = (e: React.FormEvent) => {
     e.preventDefault();
-    const cust = customers.find(c => c.id === loanFormData.customerId);
-    if (!cust) return;
-
-    const initialDocs: LoanDocumentItem[] = standardDocsList.map((docName, idx) => ({
-      id: `DOC-${idx + 1}`,
-      name: docName,
-      required: true,
-      submitted: idx < 3,
-      submissionDate: idx < 3 ? new Date().toISOString() : undefined,
-    }));
+    if (!formData.customerName) {
+      addToast({ title: 'Validation Error', message: 'Customer Name is required', type: 'error' });
+      return;
+    }
 
     createLoan({
-      customerId: cust.id,
-      customerName: cust.name,
-      customerMobile: cust.mobile,
-      bankName: loanFormData.bankName,
-      applicationRefNo: loanFormData.applicationRefNo,
-      applicationDate: loanFormData.applicationDate,
-      loanAmountRequested: Number(loanFormData.loanAmountRequested),
-      loanAmountApproved: Number(loanFormData.loanAmountApproved),
-      documents: initialDocs,
-      bankRepName: loanFormData.bankRepName || 'Branch Loan Officer',
-      bankRepContact: loanFormData.bankRepContact || '+91 94400 00000',
-      verificationStatus: loanFormData.verificationStatus,
-      followUpDate: loanFormData.followUpDate,
-      status: loanFormData.status,
-      notes: loanFormData.notes,
+      customerId: formData.customerId || 'CUST-WALK-IN',
+      customerName: formData.customerName,
+      customerMobile: formData.customerPhone || '9848011223',
+      bankName: formData.bankName,
+      applicationRefNo: 'SBI-SG-' + Date.now().toString().slice(-6),
+      loanAmountRequested: Number(formData.loanAmount),
+      loanAmountApproved: Number(formData.sanctionedAmount) || 0,
+      tenureMonths: Number(formData.tenureMonths),
+      interestRate: Number(formData.interestRate),
+      status: formData.status,
+      verificationStatus: 'In Progress',
+      followUpDate: new Date(Date.now() + 86400000 * 3).toISOString().slice(0, 10),
+      applicationDate: new Date().toISOString(),
+      discomConsumerNumber: formData.discomConsumerNumber,
+      bankRepName: formData.bankOfficerName,
+      bankRepContact: formData.bankOfficerContact,
+      documents: REQUIRED_DOCUMENTS.map((docName, idx) => ({
+        id: `DOC-${idx + 1}`,
+        name: docName,
+        required: true,
+        submitted: idx < 3,
+      })),
+      notes: 'Subsidized solar loan under PM Surya Ghar Muft Bijli Yojana.',
     });
 
+    addToast({ title: 'Loan Application Created', message: 'Application submitted for bank processing.', type: 'success' });
     setShowAddLoanModal(false);
   };
 
-  const handleOpenAddBankTxn = (customerId?: string) => {
-    setBankTxnFormData(prev => ({
-      ...prev,
-      customerId: customerId || customers[0]?.id || '',
-      receiptNumber: `BNK-REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-      transactionUtrOrCheque: `UTR-HDFC-${Math.floor(100000 + Math.random() * 900000)}`,
-    }));
-    setShowAddBankTxnModal(true);
-  };
-
-  const handleCreateBankTxnSubmit = (e: React.FormEvent) => {
+  const handleRecordPaymentSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cust = customers.find(c => c.id === bankTxnFormData.customerId);
-    if (!cust) return;
+    if (!selectedCustomerForPayment) {
+      addToast({ title: 'Selection Missing', message: 'Select a customer to record payment.', type: 'error' });
+      return;
+    }
 
     createTransaction({
-      customerId: cust.id,
-      customerName: cust.name,
-      customerMobile: cust.mobile,
-      paymentType: 'Bank',
-      amount: Number(bankTxnFormData.amount),
-      paymentStage: bankTxnFormData.paymentStage,
-      date: bankTxnFormData.date,
-      bankName: bankTxnFormData.bankName,
-      transferMode: bankTxnFormData.transferMode,
-      transactionUtrOrCheque: bankTxnFormData.transactionUtrOrCheque,
-      receiptNumber: bankTxnFormData.receiptNumber,
-      status: bankTxnFormData.status,
-      notes: bankTxnFormData.notes,
+      customerId: selectedCustomerForPayment.id,
+      customerName: selectedCustomerForPayment.name,
+      customerMobile: selectedCustomerForPayment.mobile,
+      receiptNumber: 'RCP-' + Date.now().toString().slice(-6),
+      amount: Number(paymentAmount),
+      paymentStage,
+      paymentType,
+      bankName: paymentType === 'Bank' ? paymentBankName : undefined,
+      transferMode: paymentType === 'Bank' ? paymentTransferMode : undefined,
+      transactionUtrOrCheque: paymentType === 'Bank' ? paymentReferenceNo || ('UTR-' + Date.now().toString().slice(-6)) : undefined,
+      collectedBy: paymentType === 'Cash' ? currentUser?.name || 'Field Executive' : undefined,
+      date: new Date().toISOString(),
+      status: 'Verified',
+      verifiedStatus: 'Verified',
+      notes: paymentNotes || (paymentType + ' payment received for solar rooftop milestone.'),
     });
 
-    setShowAddBankTxnModal(false);
-  };
-
-  const handleOpenAddCashTxn = (customerId?: string) => {
-    setCashTxnFormData(prev => ({
-      ...prev,
-      customerId: customerId || customers[0]?.id || '',
-      receiptNumber: `CSH-REC-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`,
-      transactionUtrOrCheque: `CSH-VOUCHER-${Math.floor(1000 + Math.random() * 9000)}`,
-    }));
-    setShowAddCashTxnModal(true);
-  };
-
-  const handleCreateCashTxnSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cust = customers.find(c => c.id === cashTxnFormData.customerId);
-    if (!cust) return;
-
-    createTransaction({
-      customerId: cust.id,
-      customerName: cust.name,
-      customerMobile: cust.mobile,
-      paymentType: 'Cash',
-      amount: Number(cashTxnFormData.amount),
-      paymentStage: cashTxnFormData.paymentStage,
-      date: cashTxnFormData.date,
-      collectedBy: cashTxnFormData.collectedBy,
-      receiptNumber: cashTxnFormData.receiptNumber,
-      transactionUtrOrCheque: cashTxnFormData.transactionUtrOrCheque,
-      status: cashTxnFormData.status,
-      notes: cashTxnFormData.notes,
-    });
-
-    setShowAddCashTxnModal(false);
-  };
-
-  // Excel Exports
-  const handleExportLoans = () => {
-    const data = filteredLoans.map(l => ({
-      'Loan ID': l.id,
-      'Customer': l.customerName,
-      'Mobile': l.customerMobile,
-      'Bank / NBFC': l.bankName,
-      'Application Ref': l.applicationRefNo,
-      'Requested (₹)': l.loanAmountRequested,
-      'Approved (₹)': l.loanAmountApproved,
-      'Status': l.status,
-      'Verification Status': l.verificationStatus,
-      'Bank Officer': `${l.bankRepName} (${l.bankRepContact})`,
-      'Next Follow-up': formatDate(l.followUpDate),
-      'Notes': l.notes,
-    }));
-    exportToExcel(data, `Kypas_Solar_Loan_Tracking_${new Date().toISOString().slice(0, 10)}`);
-  };
-
-  const handleExportBankTxns = () => {
-    const data = filteredBankTransactions.map(t => ({
-      'Receipt No': t.receiptNumber,
-      'Customer': t.customerName,
-      'Mobile': t.customerMobile,
-      'Transfer Mode': t.transferMode,
-      'Bank': t.bankName,
-      'UTR / Cheque Ref': t.transactionUtrOrCheque,
-      'Payment Stage': t.paymentStage,
-      'Amount (₹)': t.amount,
-      'Date': formatDate(t.date),
-      'Status': t.status,
-      'Notes': t.notes,
-    }));
-    exportToExcel(data, `Kypas_Solar_Bank_Payments_${new Date().toISOString().slice(0, 10)}`);
-  };
-
-  const handleExportCashTxns = () => {
-    const data = filteredCashTransactions.map(t => ({
-      'Receipt No': t.receiptNumber,
-      'Customer': t.customerName,
-      'Mobile': t.customerMobile,
-      'Collected By': t.collectedBy,
-      'Voucher Ref': t.transactionUtrOrCheque,
-      'Payment Stage': t.paymentStage,
-      'Amount (₹)': t.amount,
-      'Date': formatDate(t.date),
-      'Status': t.status,
-      'Notes': t.notes,
-    }));
-    exportToExcel(data, `Kypas_Solar_Cash_Receipts_${new Date().toISOString().slice(0, 10)}`);
-  };
-
-  const loanSampleTemplate = [
-    {
-      'Customer Name': 'K. Satyanarayana Rao',
-      'Mobile': '9849012345',
-      'Bank Name': 'State Bank of India (PM Surya Ghar)',
-      'Application Ref': 'SBI-SG-2026-901',
-      'Requested Amount': 250000,
-      'Approved Amount': 200000,
-      'Status': 'Under Verification',
-      'Verification Status': 'In Progress',
-      'Bank Officer Name': 'Praveen Kumar',
-      'Bank Officer Contact': '9848123456',
-      'Follow Up Date': '2026-04-10',
-      'Notes': 'Aadhaar and electricity bills submitted. Site inspection pending by bank field inspector.',
-    },
-    {
-      'Customer Name': 'Lakshmi Narayana Textiles',
-      'Mobile': '9849023456',
-      'Bank Name': 'Canara Bank (Green Energy SME)',
-      'Application Ref': 'CAN-GE-8842',
-      'Requested Amount': 750000,
-      'Approved Amount': 700000,
-      'Status': 'Approved',
-      'Verification Status': 'Approved',
-      'Bank Officer Name': 'Swapna V.',
-      'Bank Officer Contact': '9848234567',
-      'Follow Up Date': '2026-04-05',
-      'Notes': 'Sanction letter issued. Customer margin money received in company account.',
-    },
-  ];
-
-  const loanExpectedColumns = [
-    { key: 'Customer Name', label: 'Customer Name', required: true, example: 'K. Satyanarayana Rao' },
-    { key: 'Mobile', label: 'Mobile Number', required: true, example: '9849012345' },
-    { key: 'Bank Name', label: 'Bank Name', required: true, example: 'State Bank of India' },
-    { key: 'Application Ref', label: 'Application Ref / Loan ID', required: true, example: 'SBI-SG-2026-901' },
-    { key: 'Requested Amount', label: 'Requested Amount (₹)', required: false, example: '250000' },
-    { key: 'Approved Amount', label: 'Approved Amount (₹)', required: false, example: '200000' },
-    { key: 'Status', label: 'Loan Status', required: false, example: 'Under Verification' },
-    { key: 'Verification Status', label: 'Verification Status', required: false, example: 'In Progress' },
-    { key: 'Bank Officer Name', label: 'Bank Representative', required: false, example: 'Praveen Kumar' },
-    { key: 'Bank Officer Contact', label: 'Officer Contact', required: false, example: '9848123456' },
-    { key: 'Follow Up Date', label: 'Follow Up Date', required: false, example: '2026-04-10' },
-    { key: 'Notes', label: 'Remarks / Notes', required: false, example: 'Documents submitted' },
-  ];
-
-  const handleImportLoans = async (rows: Record<string, any>[]) => {
-    const batch = rows.map((r, idx) => {
-      const custName = String(r['Customer Name'] || r['Customer'] || r['customer'] || `Customer ${idx + 1}`).trim();
-      const custMobile = String(r['Mobile'] || r['Phone'] || r['Contact'] || '9800000000').trim();
-
-      const matchedCust = customers.find(
-        c =>
-          c.mobile.replace(/\D/g, '').slice(-10) === custMobile.replace(/\D/g, '').slice(-10) ||
-          c.name.toLowerCase() === custName.toLowerCase()
-      );
-
-      const initialDocs: LoanDocumentItem[] = standardDocsList.map((docName, dIdx) => ({
-        id: `DOC-${dIdx + 1}`,
-        name: docName,
-        required: true,
-        submitted: dIdx < 2,
-        submissionDate: dIdx < 2 ? new Date().toISOString() : undefined,
-      }));
-
-      return {
-        customerId: matchedCust ? matchedCust.id : `CUST-IMP-${idx + 1}`,
-        customerName: matchedCust ? matchedCust.name : custName,
-        customerMobile: matchedCust ? matchedCust.mobile : custMobile,
-        bankName: String(r['Bank Name'] || r['Bank'] || 'State Bank of India (PM Surya Ghar)').trim(),
-        applicationRefNo: String(r['Application Ref'] || r['Ref No'] || `LN-REF-${Math.floor(1000 + Math.random() * 9000)}`).trim(),
-        applicationDate: new Date().toISOString().slice(0, 10),
-        loanAmountRequested: Number(r['Requested Amount'] || r['Requested (₹)'] || 250000) || 250000,
-        loanAmountApproved: Number(r['Approved Amount'] || r['Approved (₹)'] || 0) || 0,
-        documents: initialDocs,
-        bankRepName: String(r['Bank Officer Name'] || r['Bank Officer'] || 'Branch Solar Officer').trim(),
-        bankRepContact: String(r['Bank Officer Contact'] || '1800-425-3800').trim(),
-        verificationStatus: (r['Verification Status'] || 'Pending') as any,
-        followUpDate: String(r['Follow Up Date'] || new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)),
-        status: (r['Status'] || 'Application Submitted') as LoanStatus,
-        notes: String(r['Notes'] || 'Imported from financing spreadsheet.').trim(),
-      };
-    });
-
-    const res = importLoansBatch(batch);
-    return { success: res.success, skipped: res.skipped };
+    addToast({ title: 'Payment Recorded', message: 'Payment of ' + formatINR(paymentAmount) + ' recorded successfully.', type: 'success' });
+    setShowRecordPaymentModal(false);
   };
 
   return (
     <div className="space-y-6 pb-12 animate-in fade-in">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2.5">
-            <Landmark className="w-6 h-6 text-blue-600" /> Bank & Financing Management
-          </h1>
-          <p className="text-xs text-slate-500">
-            Track customer payment channels: Bank Loans (PM Surya Ghar), Direct Bank Transfers (NEFT/RTGS), and Cash collections.
-          </p>
+      {/* Top Banner */}
+      <div className="bg-gradient-to-r from-amber-950 via-slate-900 to-slate-900 border border-amber-500/30 rounded-2xl p-5 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shadow-lg shadow-amber-500/30">
+            <Landmark className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-black tracking-tight text-white">
+                Bank & Financing Management
+              </h1>
+              <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                SBI & Canara 7% Scheme Live
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Track Subsidized Solar Rooftop Loans (SBI Surya Ghar @ 7.0%), Direct Bank Transfers, and Cash Collections with time-bound milestone schedules.
+            </p>
+          </div>
         </div>
 
-        {/* Global Action per active tab */}
-        <div className="flex items-center gap-2">
-          {activeSubTab === 'overview' && (
-            <button
-              onClick={() => setActiveSubTab('loans')}
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-            >
-              <Landmark className="w-3.5 h-3.5" />
-              <span>Go to Loan Tracking</span>
-            </button>
-          )}
-
-          {activeSubTab === 'loans' && hasPermission('Bank', 'create') && (
-            <>
-              <button
-                onClick={() => setShowImportLoansModal(true)}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <UploadCloud className="w-3.5 h-3.5" />
-                <span>Import Loans</span>
-              </button>
-              <button
-                onClick={handleExportLoans}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileDown className="w-3.5 h-3.5" />
-                <span>Export Loans</span>
-              </button>
-              <button
-                onClick={() => handleOpenAddLoan()}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>New Loan Application</span>
-              </button>
-            </>
-          )}
-
-          {activeSubTab === 'bank' && (
-            <>
-              <button
-                onClick={handleExportBankTxns}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileDown className="w-3.5 h-3.5" />
-                <span>Export Bank Ledger</span>
-              </button>
-              <button
-                onClick={() => handleOpenAddBankTxn()}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Record Bank Transfer</span>
-              </button>
-            </>
-          )}
-
-          {activeSubTab === 'cash' && (
-            <>
-              <button
-                onClick={handleExportCashTxns}
-                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileDown className="w-3.5 h-3.5" />
-                <span>Export Cash Ledger</span>
-              </button>
-              <button
-                onClick={() => handleOpenAddCashTxn()}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Coins className="w-3.5 h-3.5" />
-                <span>Record Cash Receipt</span>
-              </button>
-            </>
-          )}
+        {/* Action buttons */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setShowAddLoanModal(true)}
+            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Loan Application</span>
+          </button>
+          <button
+            onClick={() => {
+              if (customers.length > 0) {
+                setSelectedCustomerForPayment(customers[0]);
+              }
+              setShowRecordPaymentModal(true);
+            }}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Receipt className="w-4 h-4" />
+            <span>Record Payment</span>
+          </button>
         </div>
       </div>
 
-      {/* 4 SUB-TABS NAVIGATION: Overview (Loan vs Bank vs Cash) | Bank Loan Tracking | Bank | Cash */}
+      {/* Main Tab Switcher */}
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3 overflow-x-auto">
         <button
-          onClick={() => setActiveSubTab('overview')}
+          onClick={() => setActiveTab('overview')}
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
-            activeSubTab === 'overview'
+            activeTab === 'overview'
               ? 'bg-blue-600 text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
           }`}
         >
-          <TrendingUp className="w-4 h-4" />
+          <Layers className="w-4 h-4" />
           <span>Payment Overview (Loan vs Bank vs Cash)</span>
-          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-            activeSubTab === 'overview' ? 'bg-blue-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-          }`}>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'overview' ? 'bg-blue-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
             {customers.length}
           </span>
         </button>
 
         <button
-          onClick={() => setActiveSubTab('loans')}
+          onClick={() => setActiveTab('loans')}
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
-            activeSubTab === 'loans'
-              ? 'bg-blue-600 text-white shadow-sm'
+            activeTab === 'loans'
+              ? 'bg-amber-500 text-slate-950 shadow-sm'
               : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
           }`}
         >
           <Landmark className="w-4 h-4" />
           <span>Bank Loan Tracking</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-500 text-white">
+          <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-400 text-slate-950">
             {loans.length}
           </span>
         </button>
 
         <button
-          onClick={() => setActiveSubTab('bank')}
+          onClick={() => setActiveTab('bank')}
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
-            activeSubTab === 'bank'
+            activeTab === 'bank'
               ? 'bg-teal-600 text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
           }`}
         >
-          <Building2 className="w-4 h-4" />
+          <Building className="w-4 h-4" />
           <span>Bank (Direct / NEFT / RTGS)</span>
-          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-            activeSubTab === 'bank' ? 'bg-teal-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-          }`}>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'bank' ? 'bg-teal-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
             {bankTransactions.length}
           </span>
         </button>
 
         <button
-          onClick={() => setActiveSubTab('cash')}
+          onClick={() => setActiveTab('cash')}
           className={`px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center gap-2 cursor-pointer shrink-0 ${
-            activeSubTab === 'cash'
-              ? 'bg-amber-600 text-white shadow-sm'
+            activeTab === 'cash'
+              ? 'bg-emerald-600 text-white shadow-sm'
               : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white border border-slate-200 dark:border-slate-800'
           }`}
         >
-          <Coins className="w-4 h-4" />
+          <Wallet className="w-4 h-4" />
           <span>Cash (Receipts & Vouchers)</span>
-          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-            activeSubTab === 'cash' ? 'bg-amber-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
-          }`}>
+          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${activeTab === 'cash' ? 'bg-emerald-700 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}>
             {cashTransactions.length}
           </span>
         </button>
       </div>
 
-      {/* ========================================================
-          SUB-TAB 1: PAYMENT MODE OVERVIEW (WHICH ONE THEY TAKE)
-      ======================================================== */}
-      {activeSubTab === 'overview' && (
-        <div className="space-y-6 animate-in fade-in">
-          {/* Key Metric Summary Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Project Bookings</p>
-                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                  {formatINR(overviewStats.totalProjectValue)}
-                </p>
-                <p className="text-[10px] text-slate-400">{overviewStats.totalCustomers} Active Solar Clients</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-700 dark:text-slate-300">
-                <Wallet className="w-6 h-6" />
+      {/* TAB 1: OVERVIEW */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Key Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Contract Value</span>
+              <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">
+                {formatINR(overviewStats.totalProjectValue)}
+              </p>
+              <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
+                <span>Total Customers:</span>
+                <span className="font-bold text-slate-900 dark:text-white">{overviewStats.totalCustomers}</span>
               </div>
             </div>
 
-            {/* Bank Loan Customers */}
-            <div
-              onClick={() => setPaymentModeFilter(paymentModeFilter === 'Loan' ? 'all' : 'Loan')}
-              className={`cursor-pointer rounded-2xl p-4 border shadow-sm flex items-center justify-between transition-all ${
-                paymentModeFilter === 'Loan'
-                  ? 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-400 ring-2 ring-blue-500'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-blue-300'
-              }`}
-            >
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-blue-600">Taking Bank Loan</p>
-                  <span className="text-[9px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-bold px-1.5 py-0.2 rounded-full">
-                    {overviewStats.loanPct}%
-                  </span>
-                </div>
-                <p className="text-xl font-black text-blue-600 mt-1">
-                  {formatINR(overviewStats.loanTotalValue)}
-                </p>
-                <p className="text-[10px] text-slate-400">{overviewStats.loanCount} Customers (PM Surya Ghar / Private)</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center text-blue-600">
-                <Landmark className="w-6 h-6" />
-              </div>
-            </div>
-
-            {/* Bank Transfer Customers */}
-            <div
-              onClick={() => setPaymentModeFilter(paymentModeFilter === 'Bank' ? 'all' : 'Bank')}
-              className={`cursor-pointer rounded-2xl p-4 border shadow-sm flex items-center justify-between transition-all ${
-                paymentModeFilter === 'Bank'
-                  ? 'bg-teal-50/80 dark:bg-teal-950/40 border-teal-400 ring-2 ring-teal-500'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-teal-300'
-              }`}
-            >
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-teal-600">Direct Bank / NEFT</p>
-                  <span className="text-[9px] bg-teal-100 dark:bg-teal-900/60 text-teal-700 dark:text-teal-300 font-bold px-1.5 py-0.2 rounded-full">
-                    {overviewStats.bankPct}%
-                  </span>
-                </div>
-                <p className="text-xl font-black text-teal-600 mt-1">
-                  {formatINR(overviewStats.bankTotalValue)}
-                </p>
-                <p className="text-[10px] text-slate-400">{overviewStats.bankCount} Customers (Direct Transfer)</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-teal-50 dark:bg-teal-950/50 flex items-center justify-center text-teal-600">
-                <Building2 className="w-6 h-6" />
-              </div>
-            </div>
-
-            {/* Cash Customers */}
-            <div
-              onClick={() => setPaymentModeFilter(paymentModeFilter === 'Cash' ? 'all' : 'Cash')}
-              className={`cursor-pointer rounded-2xl p-4 border shadow-sm flex items-center justify-between transition-all ${
-                paymentModeFilter === 'Cash'
-                  ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-400 ring-2 ring-amber-500'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-amber-300'
-              }`}
-            >
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Giving Cash</p>
-                  <span className="text-[9px] bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 font-bold px-1.5 py-0.2 rounded-full">
-                    {overviewStats.cashPct}%
-                  </span>
-                </div>
-                <p className="text-xl font-black text-amber-600 mt-1">
-                  {formatINR(overviewStats.cashTotalValue)}
-                </p>
-                <p className="text-[10px] text-slate-400">{overviewStats.cashCount} Customers (Cash Installments)</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-amber-50 dark:bg-amber-950/50 flex items-center justify-center text-amber-600">
-                <Coins className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
-
-          {/* Visual Percentage Allocation Strip */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-800 dark:text-slate-200">
-                Payment Channel Distribution ("Which one they take")
-              </span>
-              <div className="flex items-center gap-4 text-xs">
-                <span className="flex items-center gap-1.5 text-blue-600 font-bold">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600"></span> Bank Loan: {overviewStats.loanCount} ({overviewStats.loanPct}%)
-                </span>
-                <span className="flex items-center gap-1.5 text-teal-600 font-bold">
-                  <span className="w-2.5 h-2.5 rounded-full bg-teal-500"></span> Direct Bank: {overviewStats.bankCount} ({overviewStats.bankPct}%)
-                </span>
-                <span className="flex items-center gap-1.5 text-amber-600 font-bold">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Cash: {overviewStats.cashCount} ({overviewStats.cashPct}%)
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+              <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Total Collected to Date</span>
+              <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+                {formatINR(overviewStats.totalCollectedValue)}
+              </p>
+              <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
+                <span>Recovery Rate:</span>
+                <span className="font-bold text-emerald-600">
+                  {overviewStats.totalProjectValue > 0 ? Math.round((overviewStats.totalCollectedValue / overviewStats.totalProjectValue) * 100) : 0}%
                 </span>
               </div>
             </div>
 
-            <div className="w-full h-3 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
-              <div
-                style={{ width: `${overviewStats.loanPct}%` }}
-                className="bg-blue-600 h-full transition-all"
-                title={`Bank Loan: ${overviewStats.loanPct}%`}
-              />
-              <div
-                style={{ width: `${overviewStats.bankPct}%` }}
-                className="bg-teal-500 h-full transition-all"
-                title={`Direct Bank: ${overviewStats.bankPct}%`}
-              />
-              <div
-                style={{ width: `${overviewStats.cashPct}%` }}
-                className="bg-amber-500 h-full transition-all"
-                title={`Cash: ${overviewStats.cashPct}%`}
-              />
+            <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
+              <span className="text-xs font-bold text-amber-500 uppercase tracking-wider">Pending Balance to Collect</span>
+              <p className="text-2xl font-black text-amber-500 mt-1">
+                {formatINR(Math.max(0, overviewStats.totalProjectValue - overviewStats.totalCollectedValue))}
+              </p>
+              <div className="flex items-center gap-2 mt-2 text-xs text-slate-500">
+                <span>Status:</span>
+                <span className="font-bold text-amber-500">Active Pipeline</span>
+              </div>
             </div>
           </div>
 
-          {/* Customer Financing Register Toolbar */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search customer name, mobile, city, ID..."
-                value={overviewSearch}
-                onChange={e => setOverviewSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
+          {/* Payment Mode Distribution Bar */}
+          <div className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+            <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+              Customer Payment Mode Distribution
+            </h3>
+
+            <div className="w-full h-4 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex">
+              <div style={{ width: overviewStats.loanPct + '%' }} className="bg-amber-500 h-full transition-all" title={`Loans: ${overviewStats.loanPct}%`} />
+              <div style={{ width: overviewStats.bankPct + '%' }} className="bg-teal-500 h-full transition-all" title={`Bank: ${overviewStats.bankPct}%`} />
+              <div style={{ width: overviewStats.cashPct + '%' }} className="bg-emerald-500 h-full transition-all" title={`Cash: ${overviewStats.cashPct}%`} />
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 font-medium">Filter Mode:</span>
-              <select
-                value={paymentModeFilter}
-                onChange={e => setPaymentModeFilter(e.target.value)}
-                className="px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                <option value="all">All Payment Channels ({customers.length})</option>
-                <option value="Loan">Bank Loan ({overviewStats.loanCount})</option>
-                <option value="Bank">Direct Bank Transfer ({overviewStats.bankCount})</option>
-                <option value="Cash">Cash Customers ({overviewStats.cashCount})</option>
-              </select>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">Bank Loan Financed</span>
+                  </div>
+                  <p className="text-lg font-black text-amber-600 mt-1">{formatINR(overviewStats.loanTotalValue)}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-black text-slate-900 dark:text-white">{overviewStats.loanCount}</span>
+                  <p className="text-[10px] text-slate-500">{overviewStats.loanPct}% clients</p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900/50 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-teal-500" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">Direct Bank Transfer</span>
+                  </div>
+                  <p className="text-lg font-black text-teal-600 mt-1">{formatINR(overviewStats.bankTotalValue)}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-black text-slate-900 dark:text-white">{overviewStats.bankCount}</span>
+                  <p className="text-[10px] text-slate-500">{overviewStats.bankPct}% clients</p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">Cash Collections</span>
+                  </div>
+                  <p className="text-lg font-black text-emerald-600 mt-1">{formatINR(overviewStats.cashTotalValue)}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xl font-black text-slate-900 dark:text-white">{overviewStats.cashCount}</span>
+                  <p className="text-[10px] text-slate-500">{overviewStats.cashPct}% clients</p>
+                </div>
+              </div>
             </div>
           </div>
 
-          {/* Customers Financing Register Table */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
+          {/* Customer Payment Mode Master Table */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-white">
+                  Customer Financing Profiles & Payment Mode Setup
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Assign or change payment modes (Loan, Bank, Cash) for customers in real time.
+                </p>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3.5 px-4">Customer Details</th>
-                    <th className="py-3.5 px-4">Solar Capacity</th>
-                    <th className="py-3.5 px-4">Project Cost</th>
-                    <th className="py-3.5 px-4">Payment Channel ("Which One")</th>
-                    <th className="py-3.5 px-4">Paid / Balance Due</th>
-                    <th className="py-3.5 px-4 text-right">Quick Action</th>
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 font-bold uppercase text-[11px]">
+                  <tr>
+                    <th className="py-3 px-4">Customer Name</th>
+                    <th className="py-3 px-4">Contact</th>
+                    <th className="py-3 px-4">Capacity</th>
+                    <th className="py-3 px-4">Project Cost</th>
+                    <th className="py-3 px-4">Paid</th>
+                    <th className="py-3 px-4">Balance</th>
+                    <th className="py-3 px-4">Payment Mode</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {filteredCustomers.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-400">
-                        No customers match this filter criteria.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredCustomers.map(cust => {
-                      const mode: PaymentCategory = cust.paymentMode || 'Loan';
-                      const cost = cust.totalProjectCost || cust.systemCapacityKW * 65000;
-                      const paid = cust.totalPaid || 0;
-                      const balance = Math.max(0, cost - paid);
-                      const paidPct = Math.min(100, Math.round((paid / (cost || 1)) * 100));
-
-                      return (
-                        <tr key={cust.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors">
-                          <td className="py-3.5 px-4">
-                            <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                              {cust.name}
-                              <span className="text-[10px] text-slate-400 font-normal">({cust.id})</span>
-                            </div>
-                            <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
-                              <span>{cust.mobile}</span>
-                              <span>•</span>
-                              <span>{cust.city}</span>
-                            </div>
-                          </td>
-
-                          <td className="py-3.5 px-4">
-                            <span className="font-black text-slate-900 dark:text-white">
-                              {cust.systemCapacityKW} kW
-                            </span>
-                            <div className="text-[10px] text-slate-400">{cust.solarRequirement}</div>
-                          </td>
-
-                          <td className="py-3.5 px-4">
-                            <span className="font-black text-slate-900 dark:text-white">
-                              {formatINR(cost)}
-                            </span>
-                          </td>
-
-                          {/* Which one they take: Loan / Bank / Cash with fast switcher */}
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-2">
-                              {mode === 'Loan' && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                                  <Landmark className="w-3.5 h-3.5 text-blue-600" /> Bank Loan
-                                </span>
-                              )}
-                              {mode === 'Bank' && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
-                                  <Building2 className="w-3.5 h-3.5 text-teal-600" /> Direct Bank (NEFT)
-                                </span>
-                              )}
-                              {mode === 'Cash' && (
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                  <Coins className="w-3.5 h-3.5 text-amber-600" /> Cash Payment
-                                </span>
-                              )}
-
-                              {/* Interactive Channel Changer */}
-                              <select
-                                value={mode}
-                                onChange={e => setCustomerPaymentMode(cust.id, e.target.value as PaymentCategory)}
-                                className="text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer"
-                                title="Change customer financing mode"
-                              >
-                                <option value="Loan">Switch to Loan</option>
-                                <option value="Bank">Switch to Bank</option>
-                                <option value="Cash">Switch to Cash</option>
-                              </select>
-                            </div>
-                          </td>
-
-                          {/* Paid vs Due */}
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center justify-between text-[11px] mb-1">
-                              <span className="font-bold text-emerald-600">{formatINR(paid)} paid</span>
-                              <span className="text-slate-400">Due: {formatINR(balance)}</span>
-                            </div>
-                            <div className="w-32 h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className="bg-emerald-500 h-full rounded-full transition-all"
-                                style={{ width: `${paidPct}%` }}
-                              />
-                            </div>
-                          </td>
-
-                          {/* Quick Action Button */}
-                          <td className="py-3.5 px-4 text-right">
-                            {mode === 'Loan' ? (
-                              <button
-                                onClick={() => {
-                                  setActiveSubTab('loans');
-                                  setLoanSearchQuery(cust.name);
-                                }}
-                                className="px-2.5 py-1 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900 text-blue-600 dark:text-blue-300 rounded-lg font-bold text-xs inline-flex items-center gap-1 transition-colors cursor-pointer"
-                              >
-                                <span>Track Loan</span>
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
-                            ) : mode === 'Bank' ? (
-                              <button
-                                onClick={() => handleOpenAddBankTxn(cust.id)}
-                                className="px-2.5 py-1 bg-teal-50 dark:bg-teal-950 hover:bg-teal-100 dark:hover:bg-teal-900 text-teal-600 dark:text-teal-300 rounded-lg font-bold text-xs inline-flex items-center gap-1 transition-colors cursor-pointer"
-                              >
-                                <span>+ Bank Receipt</span>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => handleOpenAddCashTxn(cust.id)}
-                                className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950 hover:bg-amber-100 dark:hover:bg-amber-900 text-amber-600 dark:text-amber-300 rounded-lg font-bold text-xs inline-flex items-center gap-1 transition-colors cursor-pointer"
-                              >
-                                <span>+ Cash Receipt</span>
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {customers.map((c) => {
+                    const balance = Math.max(0, (c.totalProjectCost || 0) - (c.totalPaid || 0));
+                    return (
+                      <tr key={c.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 px-4">
+                          <p className="font-bold text-slate-900 dark:text-white">{c.name}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{c.id}</p>
+                        </td>
+                        <td className="py-3 px-4">
+                          <p className="text-slate-700 dark:text-slate-300">{c.mobile}</p>
+                          <p className="text-[10px] text-slate-400">{c.city}</p>
+                        </td>
+                        <td className="py-3 px-4 font-bold text-blue-600">
+                          {c.systemCapacityKW} kW
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">
+                          {formatINR(c.totalProjectCost || 0)}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-emerald-600">
+                          {formatINR(c.totalPaid || 0)}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-amber-600">
+                          {formatINR(balance)}
+                        </td>
+                        <td className="py-3 px-4">
+                          <select
+                            value={c.paymentMode || 'Loan'}
+                            onChange={(e) => {
+                              const newMode = e.target.value as PaymentCategory;
+                              setCustomerPaymentMode(c.id, newMode);
+                              addToast({
+                                title: 'Payment Mode Updated',
+                                message: `${c.name} set to ${newMode}`,
+                                type: 'info',
+                              });
+                            }}
+                            className={`text-[11px] font-bold px-2 py-1 rounded-lg border cursor-pointer ${
+                              c.paymentMode === 'Loan'
+                                ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                                : c.paymentMode === 'Bank'
+                                ? 'bg-teal-50 text-teal-700 border-teal-300 dark:bg-teal-950/60 dark:text-teal-300 dark:border-teal-800'
+                                : 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                            }`}
+                          >
+                            <option value="Loan">Loan (Bank Financed)</option>
+                            <option value="Bank">Bank (Direct RTGS/UPI)</option>
+                            <option value="Cash">Cash Collections</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={() => {
+                              setSelectedCustomerForPayment(c);
+                              setShowRecordPaymentModal(true);
+                            }}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition-all cursor-pointer"
+                          >
+                            Collect
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -993,82 +641,56 @@ export const BankLoanTrackingView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================
-          SUB-TAB 2: BANK LOAN TRACKING (EXISTING FULL WORKFLOW)
-      ======================================================== */}
-      {activeSubTab === 'loans' && (
-        <div className="space-y-6 animate-in fade-in">
-          {/* Quick Metrics */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Applications</p>
-                <p className="text-2xl font-black text-slate-900 dark:text-white mt-1">{loans.length}</p>
-                <p className="text-[10px] text-slate-400">SBI & Private banks</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950 flex items-center justify-center text-blue-600">
-                <Landmark className="w-6 h-6" />
-              </div>
+      {/* TAB 2: BANK LOAN TRACKING */}
+      {activeTab === 'loans' && (
+        <div className="space-y-6">
+          {/* Metrics summary */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium">Total Loan Applications</span>
+              <p className="text-xl font-black text-slate-900 dark:text-slate-100 mt-1">{loans.length}</p>
             </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Under Process</p>
-                <p className="text-2xl font-black text-amber-600 mt-1">
-                  {loans.filter(l => ['Application Submitted', 'Documents Pending', 'Under Verification'].includes(l.status)).length}
-                </p>
-                <p className="text-[10px] text-slate-400">Verification in progress</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-amber-50 dark:bg-amber-950 flex items-center justify-center text-amber-600">
-                <Clock className="w-6 h-6" />
-              </div>
+            <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium">Pipeline Loan Value</span>
+              <p className="text-xl font-black text-amber-500 mt-1">
+                {formatINR(loans.reduce((s, l) => s + (l.loanAmountRequested || 0), 0))}
+              </p>
             </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600">Approved & Sanctioned</p>
-                <p className="text-2xl font-black text-emerald-600 mt-1">
-                  {loans.filter(l => l.status === 'Approved' || l.status === 'Disbursed').length}
-                </p>
-                <p className="text-[10px] text-slate-400">Sanctions issued</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950 flex items-center justify-center text-emerald-600">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
+            <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium">Disbursed to KYPAS</span>
+              <p className="text-xl font-black text-emerald-500 mt-1">
+                {formatINR(
+                  loans
+                    .filter((l) => l.status === 'Disbursed')
+                    .reduce((s, l) => s + (l.loanAmountApproved || l.loanAmountRequested || 0), 0)
+                )}
+              </p>
             </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Sanctioned Capital</p>
-                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                  {formatINR(loans.reduce((acc, curr) => acc + (curr.loanAmountApproved || 0), 0))}
-                </p>
-                <p className="text-[10px] text-slate-400">Total approved finance</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center text-indigo-600">
-                <FileCheck2 className="w-6 h-6" />
-              </div>
+            <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <span className="text-xs text-slate-500 font-medium">Under Bank Verification</span>
+              <p className="text-xl font-black text-blue-500 mt-1">
+                {loans.filter((l) => !['Disbursed', 'Rejected'].includes(l.status)).length}
+              </p>
             </div>
           </div>
 
-          {/* Filter Toolbar */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search by customer, ref #, bank..."
-                value={loanSearchQuery}
-                onChange={e => setLoanSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by customer name, application ref no, or bank..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
-
-            <div>
+            <div className="flex items-center gap-2">
               <select
-                value={loanStatusFilter}
-                onChange={e => setLoanStatusFilter(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs border border-slate-200 dark:border-slate-700"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5"
               >
                 <option value="all">All Loan Statuses</option>
                 <option value="Application Submitted">Application Submitted</option>
@@ -1079,254 +701,242 @@ export const BankLoanTrackingView: React.FC = () => {
                 <option value="Rejected">Rejected</option>
               </select>
             </div>
-
-            <div>
-              <select
-                value={loanBankFilter}
-                onChange={e => setLoanBankFilter(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-xl text-xs border border-slate-200 dark:border-slate-700"
-              >
-                <option value="all">All Banks / Schemes</option>
-                <option value="State Bank of India">State Bank of India (PM Surya Ghar)</option>
-                <option value="HDFC Bank">HDFC Bank</option>
-                <option value="Canara Bank">Canara Bank</option>
-                <option value="Tata Capital">Tata Capital</option>
-              </select>
-            </div>
           </div>
 
-          {/* Loans Table */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4">Application & Bank</th>
-                    <th className="py-3 px-4">Customer</th>
-                    <th className="py-3 px-4">Requested / Approved</th>
-                    <th className="py-3 px-4">Checklist</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Next Follow-up</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {filteredLoans.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
-                        No loan records found.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredLoans.map(loan => {
-                      const overdue = isOverdue(loan.followUpDate);
-                      const submittedDocs = loan.documents.filter(d => d.submitted).length;
-                      const totalDocs = loan.documents.length;
+          {/* Loan Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredLoans.map((loan) => (
+              <div
+                key={loan.id}
+                className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm space-y-3"
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-white">{loan.customerName}</h3>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">{loan.applicationRefNo}</p>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                    loan.status === 'Disbursed'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                      : loan.status === 'Approved'
+                      ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
+                      : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                  }`}
+                  >
+                    {loan.status}
+                  </span>
+                </div>
 
-                      return (
-                        <tr key={loan.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                          <td className="py-3.5 px-4">
-                            <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                              {loan.bankName}
-                            </span>
-                            <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
-                              <span className="font-mono">{loan.applicationRefNo}</span>
-                              <span>•</span>
-                              <span>{formatDate(loan.applicationDate)}</span>
-                            </div>
-                          </td>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Bank Partner:</span>
+                    <span className="font-semibold text-slate-900 dark:text-white">{loan.bankName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Requested Amount:</span>
+                    <span className="font-bold text-slate-900 dark:text-white">{formatINR(loan.loanAmountRequested)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Sanctioned Amount:</span>
+                    <span className="font-bold text-emerald-600">{formatINR(loan.loanAmountApproved || loan.loanAmountRequested)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Interest Rate:</span>
+                    <span className="font-semibold text-blue-600">{loan.interestRate || 7.0}% p.a.</span>
+                  </div>
+                </div>
 
-                          <td className="py-3.5 px-4">
-                            <div className="font-bold text-slate-900 dark:text-white">{loan.customerName}</div>
-                            <div className="text-[11px] text-slate-500 flex items-center gap-1">
-                              <Phone className="w-3 h-3 text-slate-400" />
-                              <span>{loan.customerMobile}</span>
-                            </div>
-                          </td>
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <button
+                    onClick={() => {
+                      setSelectedLoanForDoc(loan);
+                      setShowDocModal(true);
+                    }}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-500 flex items-center gap-1 cursor-pointer"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>
+                      Checklist (
+                      {loan.documents?.filter((d) => d.submitted).length ??
+                        loan.documentsSubmitted?.length ??
+                        0}
+                      /{loan.documents?.length || 7})
+                    </span>
+                  </button>
+                  <select
+                    value={loan.status}
+                    onChange={(e) => {
+                      updateLoan(loan.id, { status: e.target.value as LoanStatus });
+                      addToast({ title: 'Status Updated', message: `Loan status set to ${e.target.value}`, type: 'info' });
+                    }}
+                    className="text-[11px] font-bold bg-slate-50 dark:bg-slate-800 border rounded px-2 py-0.5"
+                  >
+                    <option value="Application Submitted">Application Submitted</option>
+                    <option value="Documents Pending">Documents Pending</option>
+                    <option value="Under Verification">Under Verification</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Disbursed">Disbursed</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                </div>
+              </div>
+            ))}
+          </div>
 
-                          <td className="py-3.5 px-4">
-                            <div className="font-bold text-slate-900 dark:text-white">
-                              {formatINR(loan.loanAmountRequested)}
-                            </div>
-                            <div className="text-[11px] font-semibold text-emerald-600">
-                              Approved: {loan.loanAmountApproved ? formatINR(loan.loanAmountApproved) : 'Pending'}
-                            </div>
-                          </td>
+          {/* 7% SBI Surya Ghar EMI Calculator */}
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+              <Calculator className="w-5 h-5 text-amber-500" />
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                SBI Surya Ghar 7.0% Collateral-Free EMI Calculator
+              </h3>
+            </div>
 
-                          <td className="py-3.5 px-4">
-                            <button
-                              onClick={() => setSelectedLoan(loan)}
-                              className="px-2.5 py-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                            >
-                              <FileCheck2 className="w-3.5 h-3.5 text-blue-600" />
-                              <span>{submittedDocs}/{totalDocs} Docs</span>
-                            </button>
-                          </td>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4 text-xs">
+                <div>
+                  <div className="flex justify-between font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    <span>Solar Plant Capacity: {calcCapacityKW} kW</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    step={1}
+                    value={calcCapacityKW}
+                    onChange={(e) => {
+                      const kw = Number(e.target.value);
+                      setCalcCapacityKW(kw);
+                      setCalcSystemCost(kw * 65000);
+                    }}
+                    className="w-full"
+                  />
+                </div>
 
-                          <td className="py-3.5 px-4">
-                            <Badge status={loan.status} />
-                          </td>
+                <div>
+                  <div className="flex justify-between font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    <span>Down Payment (Margin Money): {calcDownPaymentPct}%</span>
+                    <span>{formatINR(emiCalculation.downPayment)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={30}
+                    step={5}
+                    value={calcDownPaymentPct}
+                    onChange={(e) => setCalcDownPaymentPct(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
 
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                              <span className={overdue ? 'text-rose-600 font-bold' : 'text-slate-600 dark:text-slate-300'}>
-                                {formatDate(loan.followUpDate)}
-                              </span>
-                            </div>
-                          </td>
+                <div>
+                  <div className="flex justify-between font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    <span>Tenure: {calcTenureMonths / 12} Years ({calcTenureMonths} Months)</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={12}
+                    max={120}
+                    step={12}
+                    value={calcTenureMonths}
+                    onChange={(e) => setCalcTenureMonths(Number(e.target.value))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
 
-                          <td className="py-3.5 px-4 text-right">
-                            <button
-                              onClick={() => setSelectedLoan(loan)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950 transition-colors"
-                              title="Update Loan / View Checklist"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+              <div className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 space-y-2.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-600 dark:text-slate-400">Total System Cost:</span>
+                  <span className="font-bold">{formatINR(calcSystemCost)}</span>
+                </div>
+                <div className="flex justify-between text-emerald-600 font-bold">
+                  <span>PM Surya Ghar Central Subsidy:</span>
+                  <span>- {formatINR(emiCalculation.subsidy)}</span>
+                </div>
+                <div className="flex justify-between font-bold">
+                  <span>Net Cost After Subsidy:</span>
+                  <span>{formatINR(emiCalculation.netCost)}</span>
+                </div>
+                <div className="flex justify-between text-blue-600 font-bold">
+                  <span>Loan Amount Financed:</span>
+                  <span>{formatINR(emiCalculation.loanAmount)}</span>
+                </div>
+                <div className="pt-2 border-t border-amber-200 dark:border-amber-900/50 flex justify-between items-center">
+                  <span className="font-black text-slate-900 dark:text-white">Monthly Subsidized EMI (7.0%):</span>
+                  <span className="text-xl font-black text-amber-600">{formatINR(emiCalculation.emi)} / mo</span>
+                </div>
+                <div className="flex justify-between items-center text-emerald-600 font-bold">
+                  <span>Estimated Monthly Power Savings:</span>
+                  <span>~ {formatINR(emiCalculation.monthlySolarSavings)} / mo</span>
+                </div>
+                <div className="p-2 bg-emerald-100 dark:bg-emerald-950/60 rounded-xl flex justify-between items-center text-emerald-800 dark:text-emerald-200 font-black">
+                  <span>Net Monthly Cash Gain in Pocket:</span>
+                  <span>+ {formatINR(Math.max(0, emiCalculation.netMonthlyCashflow))} / month</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================
-          SUB-TAB 3: BANK (DIRECT BANK / NEFT / RTGS / CHEQUE)
-      ======================================================== */}
-      {activeSubTab === 'bank' && (
-        <div className="space-y-6 animate-in fade-in">
-          {/* Direct Bank Metrics */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-teal-600">Total Direct Bank Receipts</p>
-                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                  {formatINR(bankTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0))}
-                </p>
-                <p className="text-[10px] text-slate-400">{bankTransactions.length} Verified Transfers</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-teal-50 dark:bg-teal-950 flex items-center justify-center text-teal-600">
-                <Building2 className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Corporate Current A/c</p>
-                <p className="text-sm font-black text-slate-900 dark:text-white mt-1">
-                  State Bank of India (IFSC: SBIN0004123)
-                </p>
-                <p className="text-[10px] text-slate-400">KYPAS Solar Power Pvt Ltd</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-blue-600">Modes Accepted</p>
-                <p className="text-sm font-black text-slate-900 dark:text-white mt-1">
-                  NEFT • RTGS • IMPS • Cheque
-                </p>
-                <p className="text-[10px] text-slate-400">Verified via UTR reconciliation</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950 flex items-center justify-center text-blue-600">
-                <CreditCard className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
-
-          {/* Search bar */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* TAB 3: DIRECT BANK TRANSFERS */}
+      {activeTab === 'bank' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search UTR #, customer name, receipt #..."
-                value={bankTxnSearch}
-                onChange={e => setBankTxnSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                value={bankSearch}
+                onChange={(e) => setBankSearch(e.target.value)}
+                placeholder="Search bank transactions by customer, receipt #, UTR, or bank name..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none"
               />
             </div>
-            <span className="text-xs text-slate-400">
-              Showing {filteredBankTransactions.length} bank transactions
-            </span>
           </div>
 
-          {/* Bank Transactions Table */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4">Receipt & Date</th>
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold uppercase text-[11px]">
+                  <tr>
+                    <th className="py-3 px-4">Receipt #</th>
                     <th className="py-3 px-4">Customer</th>
-                    <th className="py-3 px-4">Transfer Mode & UTR / Cheque</th>
-                    <th className="py-3 px-4">Receiving Bank</th>
-                    <th className="py-3 px-4">Payment Stage</th>
+                    <th className="py-3 px-4">Bank Name</th>
+                    <th className="py-3 px-4">UTR / Ref #</th>
+                    <th className="py-3 px-4">Mode</th>
+                    <th className="py-3 px-4">Stage</th>
                     <th className="py-3 px-4">Amount</th>
+                    <th className="py-3 px-4">Date</th>
                     <th className="py-3 px-4">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredBankTransactions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
-                        No direct bank transactions recorded yet.
+                      <td colSpan={9} className="py-8 text-center text-slate-400">
+                        No bank transactions found.
                       </td>
                     </tr>
                   ) : (
-                    filteredBankTransactions.map(txn => (
-                      <tr key={txn.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <span className="font-mono font-bold text-slate-900 dark:text-white">
-                            {txn.receiptNumber}
-                          </span>
-                          <div className="text-[10px] text-slate-400 mt-0.5">{formatDate(txn.date)}</div>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-900 dark:text-white">{txn.customerName}</div>
-                          <div className="text-[10px] text-slate-400">{txn.customerMobile}</div>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800">
-                            {txn.transferMode || 'NEFT'}
-                          </span>
-                          <div className="font-mono text-[11px] text-slate-600 dark:text-slate-300 mt-1">
-                            {txn.transactionUtrOrCheque || '--'}
-                          </div>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="text-slate-700 dark:text-slate-300 font-medium">
-                            {txn.bankName || 'SBI Corporate Account'}
+                    filteredBankTransactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 px-4 font-mono font-bold text-blue-600">{tx.receiptNumber}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">{tx.customerName}</td>
+                        <td className="py-3 px-4 text-slate-700 dark:text-slate-300">{tx.bankName || 'SBI'}</td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-600 dark:text-slate-400">{tx.transactionUtrOrCheque || 'UTR-COMP-102'}</td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300 text-[10px] font-bold">
+                            {tx.transferMode || 'RTGS'}
                           </span>
                         </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="text-slate-800 dark:text-slate-200 font-bold">
-                            {txn.paymentStage}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="font-black text-sm text-teal-600">
-                            {formatINR(txn.amount)}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300">
-                            <CheckCircle className="w-3 h-3" /> {txn.status}
+                        <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">{tx.paymentStage}</td>
+                        <td className="py-3 px-4 font-black text-emerald-600">{formatINR(tx.amount)}</td>
+                        <td className="py-3 px-4 text-slate-500">{formatDate(tx.date)}</td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-bold">
+                            {tx.status || tx.verifiedStatus || 'Verified'}
                           </span>
                         </td>
                       </tr>
@@ -1339,139 +949,56 @@ export const BankLoanTrackingView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================
-          SUB-TAB 4: CASH (RECEIPTS & VOUCHERS)
-      ======================================================== */}
-      {activeSubTab === 'cash' && (
-        <div className="space-y-6 animate-in fade-in">
-          {/* Cash Metrics */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600">Total Cash Collected</p>
-                <p className="text-xl font-black text-slate-900 dark:text-white mt-1">
-                  {formatINR(cashTransactions.reduce((acc, curr) => acc + (curr.amount || 0), 0))}
-                </p>
-                <p className="text-[10px] text-slate-400">{cashTransactions.length} Cash Receipts Issued</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-amber-50 dark:bg-amber-950 flex items-center justify-center text-amber-600">
-                <Coins className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Cash In-Hand / Office Vault</p>
-                <p className="text-base font-black text-slate-900 dark:text-white mt-1">
-                  ₹ 50,000 Verified
-                </p>
-                <p className="text-[10px] text-slate-400">Head Office Cash Counter</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-600">
-                <Receipt className="w-6 h-6" />
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-blue-600">Voucher Printing</p>
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-1">
-                  Official GST-compliant cash receipts
-                </p>
-                <p className="text-[10px] text-slate-400">Immediate customer confirmation</p>
-              </div>
-              <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-950 flex items-center justify-center text-blue-600">
-                <Printer className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
-
-          {/* Search Toolbar */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+      {/* TAB 4: CASH COLLECTIONS */}
+      {activeTab === 'cash' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search receipt #, customer name, collector..."
-                value={cashTxnSearch}
-                onChange={e => setCashTxnSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-xs border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                value={cashSearch}
+                onChange={(e) => setCashSearch(e.target.value)}
+                placeholder="Search cash receipts by customer, receipt #, or collector..."
+                className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none"
               />
             </div>
-            <span className="text-xs text-slate-400">
-              Showing {filteredCashTransactions.length} cash receipts
-            </span>
           </div>
 
-          {/* Cash Transactions Table */}
           <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4">Receipt # & Date</th>
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold uppercase text-[11px]">
+                  <tr>
+                    <th className="py-3 px-4">Receipt #</th>
                     <th className="py-3 px-4">Customer</th>
-                    <th className="py-3 px-4">Payment Stage</th>
                     <th className="py-3 px-4">Collected By</th>
+                    <th className="py-3 px-4">Stage</th>
                     <th className="py-3 px-4">Amount</th>
-                    <th className="py-3 px-4">Voucher No</th>
-                    <th className="py-3 px-4 text-right">Receipt Voucher</th>
+                    <th className="py-3 px-4">Date</th>
+                    <th className="py-3 px-4">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {filteredCashTransactions.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-400">
-                        No cash transactions recorded yet.
+                      <td colSpan={7} className="py-8 text-center text-slate-400">
+                        No cash receipts recorded yet.
                       </td>
                     </tr>
                   ) : (
-                    filteredCashTransactions.map(txn => (
-                      <tr key={txn.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                        <td className="py-3.5 px-4">
-                          <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                            {txn.receiptNumber}
+                    filteredCashTransactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                        <td className="py-3 px-4 font-mono font-bold text-amber-600">{tx.receiptNumber}</td>
+                        <td className="py-3 px-4 font-bold text-slate-900 dark:text-white">{tx.customerName}</td>
+                        <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">{tx.collectedBy || 'Field Executive'}</td>
+                        <td className="py-3 px-4">{tx.paymentStage}</td>
+                        <td className="py-3 px-4 font-black text-emerald-600">{formatINR(tx.amount)}</td>
+                        <td className="py-3 px-4 text-slate-500">{formatDate(tx.date)}</td>
+                        <td className="py-3 px-4">
+                          <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 text-[10px] font-bold">
+                            {tx.status || tx.verifiedStatus || 'Verified'}
                           </span>
-                          <div className="text-[10px] text-slate-400 mt-0.5">{formatDate(txn.date)}</div>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-slate-900 dark:text-white">{txn.customerName}</div>
-                          <div className="text-[10px] text-slate-400">{txn.customerMobile}</div>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                            {txn.paymentStage}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="text-slate-800 dark:text-slate-200 font-medium">
-                            {txn.collectedBy || 'Accounts Officer'}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="font-black text-sm text-amber-600">
-                            {formatINR(txn.amount)}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className="font-mono text-[10px] text-slate-500">
-                            {txn.transactionUtrOrCheque || '--'}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4 text-right">
-                          <button
-                            onClick={() => setSelectedReceipt(txn)}
-                            className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/80 hover:bg-amber-100 text-amber-700 dark:text-amber-300 rounded-lg font-bold text-xs inline-flex items-center gap-1 transition-colors cursor-pointer border border-amber-200 dark:border-amber-800"
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                            <span>View Voucher</span>
-                          </button>
                         </td>
                       </tr>
                     ))
@@ -1483,273 +1010,176 @@ export const BankLoanTrackingView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================
-          MODAL 1: DOCUMENT CHECKLIST & EDIT LOAN DRAWER
-      ======================================================== */}
-      {selectedLoan && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar animate-in zoom-in-95">
-            <button
-              onClick={() => setSelectedLoan(null)}
-              className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="mb-6">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 dark:bg-blue-950 px-2 py-0.5 rounded-md">
-                Application: {selectedLoan.applicationRefNo}
-              </span>
-              <h2 className="text-xl font-bold text-slate-900 dark:text-white mt-1">
-                {selectedLoan.customerName} - {selectedLoan.bankName}
-              </h2>
-              <p className="text-xs text-slate-500">
-                Verify customer documents, update sanction stages, and record bank follow-up notes.
-              </p>
+      {/* DOCUMENT CHECKLIST MODAL */}
+      {showDocModal && selectedLoanForDoc && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div>
+                <h3 className="text-base font-black text-slate-900 dark:text-white">
+                  Bank Document Checklist
+                </h3>
+                <p className="text-xs text-slate-500">{selectedLoanForDoc.customerName} - {selectedLoanForDoc.bankName}</p>
+              </div>
+              <button
+                onClick={() => setShowDocModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Status & Sanction Update */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 dark:bg-slate-800/60 rounded-2xl mb-6">
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Status</label>
-                <select
-                  value={selectedLoan.status}
-                  onChange={e => {
-                    const newStatus = e.target.value as LoanStatus;
-                    updateLoan(selectedLoan.id, { status: newStatus });
-                    setSelectedLoan({ ...selectedLoan, status: newStatus });
-                  }}
-                  className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-700"
-                >
-                  <option value="Application Submitted">Application Submitted</option>
-                  <option value="Documents Pending">Documents Pending</option>
-                  <option value="Under Verification">Under Verification</option>
-                  <option value="Approved">Approved</option>
-                  <option value="Disbursed">Disbursed</option>
-                  <option value="Rejected">Rejected</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Approved Amount (₹)</label>
-                <input
-                  type="number"
-                  value={selectedLoan.loanAmountApproved || ''}
-                  onChange={e => {
-                    const val = Number(e.target.value);
-                    updateLoan(selectedLoan.id, { loanAmountApproved: val });
-                    setSelectedLoan({ ...selectedLoan, loanAmountApproved: val });
-                  }}
-                  placeholder="0"
-                  className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-bold border border-slate-200 dark:border-slate-700"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Next Follow-up</label>
-                <input
-                  type="date"
-                  value={selectedLoan.followUpDate ? selectedLoan.followUpDate.slice(0, 10) : ''}
-                  onChange={e => {
-                    const newDate = e.target.value;
-                    updateLoan(selectedLoan.id, { followUpDate: newDate });
-                    setSelectedLoan({ ...selectedLoan, followUpDate: newDate });
-                  }}
-                  className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-700"
-                />
-              </div>
-            </div>
-
-            {/* Checklist */}
-            <div className="space-y-3 mb-6">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
-                <span>Solar Finance Document Checklist</span>
-                <span className="text-blue-600 font-bold">
-                  {selectedLoan.documents.filter(d => d.submitted).length} / {selectedLoan.documents.length} Submitted
-                </span>
-              </h3>
-
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
-                {selectedLoan.documents.map(doc => (
+            <div className="space-y-2 text-xs">
+              {(selectedLoanForDoc.documents && selectedLoanForDoc.documents.length > 0
+                ? selectedLoanForDoc.documents
+                : REQUIRED_DOCUMENTS.map((name, i) => ({
+                    id: `DOC-${i + 1}`,
+                    name,
+                    required: true,
+                    submitted: selectedLoanForDoc.documentsSubmitted?.includes(name) || false,
+                  }))
+              ).map((docItem) => {
+                const isChecked = docItem.submitted;
+                return (
                   <div
-                    key={doc.id}
+                    key={docItem.id}
                     onClick={() => {
-                      toggleLoanDoc(selectedLoan.id, doc.id, !doc.submitted);
-                      setSelectedLoan(prev => {
+                      toggleLoanDoc(selectedLoanForDoc.id, docItem.id, !isChecked);
+                      setSelectedLoanForDoc((prev) => {
                         if (!prev) return null;
-                        return {
-                          ...prev,
-                          documents: prev.documents.map(d =>
-                            d.id === doc.id ? { ...d, submitted: !d.submitted } : d
-                          ),
-                        };
+                        const updatedDocs = (prev.documents || []).map((d) =>
+                          d.id === docItem.id ? { ...d, submitted: !isChecked } : d
+                        );
+                        return { ...prev, documents: updatedDocs };
                       });
                     }}
-                    className="p-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
+                    className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                      isChecked
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+                        : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700'
+                    }`}
                   >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        checked={doc.submitted}
-                        onChange={() => {}}
-                        className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                      <span className={`text-xs ${doc.submitted ? 'line-through text-slate-400' : 'font-semibold text-slate-700 dark:text-slate-200'}`}>
-                        {doc.name}
-                      </span>
-                    </div>
-
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                      doc.submitted ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600' : 'bg-amber-50 dark:bg-amber-950 text-amber-600'
-                    }`}>
-                      {doc.submitted ? 'Verified' : 'Pending'}
+                    <span className={`font-semibold ${isChecked ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-700 dark:text-slate-300'}`}>
+                      {docItem.name}
                     </span>
+                    <input
+                      type="checkbox"
+                      checked={!!isChecked}
+                      onChange={() => {}}
+                      className="w-4 h-4 text-emerald-600 rounded"
+                    />
                   </div>
-                ))}
-              </div>
+                );
+              })}
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex justify-end">
               <button
-                onClick={() => setSelectedLoan(null)}
-                className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-xs"
+                onClick={() => setShowDocModal(false)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
-                Done / Save Updates
+                Done
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================
-          MODAL 2: NEW LOAN APPLICATION
-      ======================================================== */}
+      {/* NEW LOAN APPLICATION MODAL */}
       {showAddLoanModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-xl bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar animate-in zoom-in-95">
-            <button
-              onClick={() => setShowAddLoanModal(false)}
-              className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="mb-6">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Landmark className="w-5 h-5 text-blue-600" />
-                Initiate Bank Loan Tracker
-              </h2>
-              <p className="text-xs text-slate-500">
-                Register rooftop solar loan application with State Bank of India or private lending partners.
-              </p>
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-xl w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                New Bank Loan Application
+              </h3>
+              <button
+                onClick={() => setShowAddLoanModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={handleCreateLoanSubmit} className="space-y-4 text-xs">
+            <form onSubmit={handleCreateLoan} className="space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Select Existing Customer
+                </label>
+                <select
+                  value={formData.customerId}
+                  onChange={(e) => handleSelectCustomer(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
+                >
+                  <option value="">-- Choose Customer --</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} - {c.mobile} ({c.systemCapacityKW} kW)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Customer Account *</label>
-                  <select
-                    value={loanFormData.customerId}
-                    onChange={e => setLoanFormData({ ...loanFormData, customerId: e.target.value })}
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Customer Name</label>
+                  <input
+                    type="text"
                     required
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    value={formData.customerName}
+                    onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Mobile</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.customerPhone}
+                    onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Bank Partner</label>
+                  <select
+                    value={formData.bankName}
+                    onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
                   >
-                    {customers.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.id})
-                      </option>
+                    {BANK_PARTNERS.map((bp) => (
+                      <option key={bp.name} value={bp.name}>{bp.name} ({bp.interestRate}%)</option>
                     ))}
                   </select>
                 </div>
-
                 <div>
-                  <label className="block font-semibold mb-1">Bank / Lending Institution *</label>
-                  <select
-                    value={loanFormData.bankName}
-                    onChange={e => setLoanFormData({ ...loanFormData, bankName: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  >
-                    <option value="State Bank of India (PM Surya Ghar Scheme)">SBI (Surya Ghar Rooftop Scheme)</option>
-                    <option value="HDFC Bank (Green Solar Loan)">HDFC Bank Green Loan</option>
-                    <option value="Canara Bank (Rooftop Solar Finance)">Canara Bank Solar Finance</option>
-                    <option value="Tata Capital Green Energy Loan">Tata Capital Cleantech</option>
-                    <option value="Bank of Baroda Solar Rooftop Scheme">Bank of Baroda Solar Scheme</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Application Reference No *</label>
-                  <input
-                    type="text"
-                    required
-                    value={loanFormData.applicationRefNo}
-                    onChange={e => setLoanFormData({ ...loanFormData, applicationRefNo: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Loan Amount Requested (₹) *</label>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Loan Amount (₹)</label>
                   <input
                     type="number"
-                    required
-                    value={loanFormData.loanAmountRequested}
-                    onChange={e => setLoanFormData({ ...loanFormData, loanAmountRequested: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    value={formData.loanAmount}
+                    onChange={(e) => setFormData({ ...formData, loanAmount: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Bank Officer Name</label>
-                  <input
-                    type="text"
-                    value={loanFormData.bankRepName}
-                    onChange={e => setLoanFormData({ ...loanFormData, bankRepName: e.target.value })}
-                    placeholder="e.g. Sridhar (Manager)"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Officer Contact</label>
-                  <input
-                    type="text"
-                    value={loanFormData.bankRepContact}
-                    onChange={e => setLoanFormData({ ...loanFormData, bankRepContact: e.target.value })}
-                    placeholder="+91 94401 23456"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Notes / Remarks</label>
-                <textarea
-                  rows={2}
-                  value={loanFormData.notes}
-                  onChange={e => setLoanFormData({ ...loanFormData, notes: e.target.value })}
-                  placeholder="Record customer branch visit date, required property docs..."
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowAddLoanModal(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="px-4 py-2 border rounded-xl text-xs font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl"
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs cursor-pointer"
                 >
-                  Create Loan Application
+                  Submit Application
                 </button>
               </div>
             </form>
@@ -1757,41 +1187,36 @@ export const BankLoanTrackingView: React.FC = () => {
         </div>
       )}
 
-      {/* ========================================================
-          MODAL 3: RECORD BANK TRANSFER / CHEQUE
-      ======================================================== */}
-      {showAddBankTxnModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar animate-in zoom-in-95">
-            <button
-              onClick={() => setShowAddBankTxnModal(false)}
-              className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="mb-6">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-teal-600" />
-                Record Direct Bank Transfer (NEFT / RTGS / Cheque)
-              </h2>
-              <p className="text-xs text-slate-500">
-                Log direct bank remittances received into KYPAS Solar corporate account.
-              </p>
+      {/* RECORD PAYMENT MODAL */}
+      {showRecordPaymentModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-base font-black text-slate-900 dark:text-white">
+                Record Payment / Collection
+              </h3>
+              <button
+                onClick={() => setShowRecordPaymentModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={handleCreateBankTxnSubmit} className="space-y-4 text-xs">
+            <form onSubmit={handleRecordPaymentSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-semibold mb-1">Customer Account *</label>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Customer</label>
                 <select
-                  value={bankTxnFormData.customerId}
-                  onChange={e => setBankTxnFormData({ ...bankTxnFormData, customerId: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                  value={selectedCustomerForPayment?.id || ''}
+                  onChange={(e) => {
+                    const c = customers.find((cust) => cust.id === e.target.value);
+                    if (c) setSelectedCustomerForPayment(c);
+                  }}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
                 >
-                  {customers.map(c => (
+                  {customers.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name} ({c.id}) - {c.systemCapacityKW} kW
+                      {c.name} - {c.mobile} (Balance: {formatINR(Math.max(0, (c.totalProjectCost || 0) - (c.totalPaid || 0)))})
                     </option>
                   ))}
                 </select>
@@ -1799,365 +1224,85 @@ export const BankLoanTrackingView: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Transfer Mode *</label>
-                  <select
-                    value={bankTxnFormData.transferMode}
-                    onChange={e => setBankTxnFormData({ ...bankTxnFormData, transferMode: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  >
-                    <option value="NEFT">NEFT Transfer</option>
-                    <option value="RTGS">RTGS Transfer</option>
-                    <option value="IMPS">IMPS Immediate</option>
-                    <option value="Cheque">Bank Cheque</option>
-                    <option value="UPI">UPI Payment</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Amount Received (₹) *</label>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Amount (₹)</label>
                   <input
                     type="number"
                     required
-                    value={bankTxnFormData.amount}
-                    onChange={e => setBankTxnFormData({ ...bankTxnFormData, amount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl font-bold"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">UTR / Cheque Ref No *</label>
-                  <input
-                    type="text"
-                    required
-                    value={bankTxnFormData.transactionUtrOrCheque}
-                    onChange={e => setBankTxnFormData({ ...bankTxnFormData, transactionUtrOrCheque: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Payment Stage *</label>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Payment Mode</label>
                   <select
-                    value={bankTxnFormData.paymentStage}
-                    onChange={e => setBankTxnFormData({ ...bankTxnFormData, paymentStage: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
+                    value={paymentType}
+                    onChange={(e) => setPaymentType(e.target.value as 'Bank' | 'Cash')}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
                   >
-                    <option value="Advance">Advance Payment</option>
-                    <option value="Material Dispatch">Material Dispatch</option>
-                    <option value="Commissioning">Commissioning Stage</option>
-                    <option value="Full Payment">Full Settlement</option>
+                    <option value="Bank">Bank (RTGS/NEFT/UPI)</option>
+                    <option value="Cash">Cash Collection</option>
                   </select>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Receipt Number</label>
-                  <input
-                    type="text"
-                    value={bankTxnFormData.receiptNumber}
-                    onChange={e => setBankTxnFormData({ ...bankTxnFormData, receiptNumber: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono"
-                  />
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Payment Stage</label>
+                  <select
+                    value={paymentStage}
+                    onChange={(e) => setPaymentStage(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl"
+                  >
+                    <option value="Advance">Advance Token (20%)</option>
+                    <option value="Material Dispatch">Material Dispatch (60%)</option>
+                    <option value="Commissioning">Commissioning (20%)</option>
+                    <option value="Full Payment">Full Settlement</option>
+                  </select>
                 </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Remittance Date</label>
-                  <input
-                    type="date"
-                    value={bankTxnFormData.date}
-                    onChange={e => setBankTxnFormData({ ...bankTxnFormData, date: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
-                </div>
+                {paymentType === 'Bank' ? (
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">UTR / Cheque No.</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. UTR-SBI-849201"
+                      value={paymentReferenceNo}
+                      onChange={(e) => setPaymentReferenceNo(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border rounded-xl font-mono"
+                    />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Collected By</label>
+                    <input
+                      type="text"
+                      disabled
+                      value={currentUser?.name || 'Field Executive'}
+                      className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-800 border rounded-xl"
+                    />
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="block font-semibold mb-1">Notes / Remarks</label>
-                <input
-                  type="text"
-                  value={bankTxnFormData.notes}
-                  onChange={e => setBankTxnFormData({ ...bankTxnFormData, notes: e.target.value })}
-                  placeholder="e.g. Cleared via HDFC Bank netbanking"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setShowAddBankTxnModal(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl"
+                  onClick={() => setShowRecordPaymentModal(false)}
+                  className="px-4 py-2 border rounded-xl text-xs font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl"
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs cursor-pointer"
                 >
-                  Record Bank Receipt
+                  Confirm & Record
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {/* ========================================================
-          MODAL 4: RECORD CASH RECEIPT
-      ======================================================== */}
-      {showAddCashTxnModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar animate-in zoom-in-95">
-            <button
-              onClick={() => setShowAddCashTxnModal(false)}
-              className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="mb-6">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <Coins className="w-5 h-5 text-amber-600" />
-                Record Cash Receipt
-              </h2>
-              <p className="text-xs text-slate-500">
-                Generate official cash receipt voucher for customer payments made in cash.
-              </p>
-            </div>
-
-            <form onSubmit={handleCreateCashTxnSubmit} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold mb-1">Customer Account *</label>
-                <select
-                  value={cashTxnFormData.customerId}
-                  onChange={e => setCashTxnFormData({ ...cashTxnFormData, customerId: e.target.value })}
-                  required
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                >
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({c.id}) - {c.systemCapacityKW} kW
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Amount Collected (₹) *</label>
-                  <input
-                    type="number"
-                    required
-                    value={cashTxnFormData.amount}
-                    onChange={e => setCashTxnFormData({ ...cashTxnFormData, amount: Number(e.target.value) })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-bold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Payment Stage *</label>
-                  <select
-                    value={cashTxnFormData.paymentStage}
-                    onChange={e => setCashTxnFormData({ ...cashTxnFormData, paymentStage: e.target.value as any })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  >
-                    <option value="Advance">Advance Payment</option>
-                    <option value="Material Dispatch">Material Dispatch</option>
-                    <option value="Commissioning">Commissioning Stage</option>
-                    <option value="Full Payment">Full Settlement</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Cash Receipt #</label>
-                  <input
-                    type="text"
-                    value={cashTxnFormData.receiptNumber}
-                    onChange={e => setCashTxnFormData({ ...cashTxnFormData, receiptNumber: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Cash Voucher Ref #</label>
-                  <input
-                    type="text"
-                    value={cashTxnFormData.transactionUtrOrCheque}
-                    onChange={e => setCashTxnFormData({ ...cashTxnFormData, transactionUtrOrCheque: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold mb-1">Collected By *</label>
-                  <input
-                    type="text"
-                    required
-                    value={cashTxnFormData.collectedBy}
-                    onChange={e => setCashTxnFormData({ ...cashTxnFormData, collectedBy: e.target.value })}
-                    placeholder="Field Executive / Accounts Desk"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold mb-1">Date Collected</label>
-                  <input
-                    type="date"
-                    value={cashTxnFormData.date}
-                    onChange={e => setCashTxnFormData({ ...cashTxnFormData, date: e.target.value })}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-semibold mb-1">Notes / Cash Denomination Remarks</label>
-                <input
-                  type="text"
-                  value={cashTxnFormData.notes}
-                  onChange={e => setCashTxnFormData({ ...cashTxnFormData, notes: e.target.value })}
-                  placeholder="e.g. Received at Hyderabad site office in 500 currency notes"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowAddCashTxnModal(false)}
-                  className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-xl"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl"
-                >
-                  Issue Cash Receipt
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================
-          MODAL 5: PRINTABLE CASH RECEIPT VOUCHER PREVIEW
-      ======================================================== */}
-      {selectedReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto custom-scrollbar animate-in zoom-in-95">
-            <button
-              onClick={() => setSelectedReceipt(null)}
-              className="absolute top-5 right-5 p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            {/* Official Cash Receipt Voucher Layout */}
-            <div className="border-2 border-dashed border-amber-300 dark:border-amber-700 rounded-2xl p-6 bg-amber-50/30 dark:bg-slate-900/40 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-amber-200 dark:border-slate-700">
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-400">
-                    KYPAS SOLAR POWER PVT LTD
-                  </span>
-                  <h3 className="text-base font-black text-slate-900 dark:text-white mt-0.5">
-                    Official Cash Payment Receipt
-                  </h3>
-                </div>
-                <div className="text-right">
-                  <span className="font-mono text-xs font-bold text-amber-700 dark:text-amber-400">
-                    {selectedReceipt.receiptNumber}
-                  </span>
-                  <div className="text-[10px] text-slate-400 mt-0.5">{formatDate(selectedReceipt.date)}</div>
-                </div>
-              </div>
-
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-slate-500">Customer Name:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">{selectedReceipt.customerName}</span>
-                </div>
-
-                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-slate-500">Contact Number:</span>
-                  <span className="font-mono text-slate-900 dark:text-white">{selectedReceipt.customerMobile}</span>
-                </div>
-
-                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-slate-500">Payment Purpose / Stage:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">{selectedReceipt.paymentStage}</span>
-                </div>
-
-                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-slate-500">Amount Received in Cash:</span>
-                  <span className="text-lg font-black text-amber-600">{formatINR(selectedReceipt.amount)}</span>
-                </div>
-
-                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-slate-500">Voucher / Deposit Ref:</span>
-                  <span className="font-mono text-slate-700 dark:text-slate-300">
-                    {selectedReceipt.transactionUtrOrCheque || 'CSH-VOUCHER'}
-                  </span>
-                </div>
-
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-500">Received By:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">{selectedReceipt.collectedBy || 'Cashier'}</span>
-                </div>
-              </div>
-
-              {selectedReceipt.notes && (
-                <p className="text-[11px] text-slate-500 italic bg-white dark:bg-slate-800 p-2 rounded-lg">
-                  "{selectedReceipt.notes}"
-                </p>
-              )}
-
-              <div className="pt-3 border-t border-amber-200 dark:border-slate-700 text-center text-[10px] text-slate-400">
-                Computer-generated receipt issued by KYPAS Solar CRM Pro • Hyderabad, Telangana
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                onClick={() => setSelectedReceipt(null)}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  window.print();
-                }}
-                className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>Print Voucher</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Data Import Modal for Loans */}
-      <DataImportModal
-        isOpen={showImportLoansModal}
-        onClose={() => setShowImportLoansModal(false)}
-        title="Bulk Import Loan Applications"
-        entityName="Loan Applications"
-        expectedColumns={loanExpectedColumns}
-        sampleData={loanSampleTemplate}
-        sampleFileName="Kypas_Solar_Loan_Applications_Template.xlsx"
-        onImport={handleImportLoans}
-      />
     </div>
   );
 };

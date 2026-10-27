@@ -114,6 +114,7 @@ export interface BankPaymentTransaction {
   collectedBy?: string;
   receiptNumber: string;
   status: 'Verified' | 'Pending Verification' | 'Rejected';
+  verifiedStatus?: 'Verified' | 'Pending Verification' | 'Rejected';
   notes?: string;
 }
 
@@ -279,7 +280,11 @@ export interface LoanApplication {
   applicationDate: string;
   loanAmountRequested: number;
   loanAmountApproved: number;
+  tenureMonths?: number;
+  interestRate?: number;
+  discomConsumerNumber?: string;
   documents: LoanDocumentItem[];
+  documentsSubmitted?: string[];
   bankRepName: string;
   bankRepContact: string;
   verificationStatus: 'Pending' | 'In Progress' | 'Site Inspection Done' | 'Approved' | 'Queries Raised';

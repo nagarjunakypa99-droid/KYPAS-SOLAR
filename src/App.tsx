@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { CRMProvider, useCRM } from './context/CRMContext';
+import { CRMProvider } from './context/CRMContext';
 import { Sidebar, NavItemKey } from './components/common/Sidebar';
 import { Header } from './components/common/Header';
 import { ToastContainer } from './components/common/ToastContainer';
@@ -28,7 +28,7 @@ import { SettingsView } from './components/modules/Settings/SettingsView';
 import { ActivityHistoryView } from './components/modules/Activity/ActivityHistoryView';
 
 const MainAppLayout: React.FC = () => {
-  const { isAuthenticated, currentUser } = useAuth();
+  const { isAuthenticated } = useAuth();
   const [currentTab, setCurrentTab] = useState<NavItemKey>('dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -41,7 +41,11 @@ const MainAppLayout: React.FC = () => {
       case 'dashboard':
         return <DashboardView onNavigate={setCurrentTab} />;
       case 'leads':
-        return <LeadManagementView />;
+        return (
+          <LeadManagementView
+            onNavigateToQuotation={() => setCurrentTab('quotations')}
+          />
+        );
       case 'customers':
         return <CustomerManagementView />;
       case 'quotations':
